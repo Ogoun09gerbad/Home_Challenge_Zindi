@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Client de test — Transcription streaming</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.25rem; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; }
+  input[type=text] { flex: 1; padding: 6px 8px; font-family: monospace; }
+  button { padding: 8px 16px; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  #status { font-weight: bold; }
+  #status.connected { color: #0a7d2c; }
+  #status.disconnected { color: #b00020; }
+  #partial { min-height: 1.5em; color: #888; font-style: italic; margin: 12px 0; }
+  #finalLog { border: 1px solid #ddd; border-radius: 6px; padding: 12px; min-height: 200px; white-space: pre-wrap; }
+  .segment { margin-bottom: 6px; }
+  .speaker { color: #555; font-size: 0.8em; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Client de test — Transcription vocale streaming</h1>
+
+<div class="row">
+  <input type="text" id="wsUrl" value="ws://localhost:8000/ws/transcribe" />
+</div>
+<div class="row">
+  <input type="text" id="jwtToken" placeholder="Jeton JWT (paramètre ?token=)" />
+</div>
+
+<div class="row">
+  <button id="btnStart">🎙️ Démarrer</button>
+  <button id="btnStop" disabled>⏹️ Arrêter</button>
+  <span id="status" class="disconnected">Déconnecté</span>
+</div>
+
+<div id="partial"></div>
+<div id="finalLog"></div>
+
+<script>
+/**
+ * Client minimaliste : capture le micro via l'API Web Audio, ré-échantillonne
+ * (si nécessaire) en 16 kHz mono, convertit chaque bloc en PCM 16 bits
+ * linéaire (little-endian), et envoie ces paquets binaires par frames
+ * WebSocket de ~100 ms au serveur de transcription.
+ *
+ * La capture/conversion s'exécute dans un AudioWorkletProcessor (thread
+ * audio dédié, hors du thread principal) pour ne jamais bloquer l'UI et
+ * garantir un flux stable, condition nécessaire à la latence cible (<300ms).
+ */
+
+const SAMPLE_RATE = 16000;       // Hz — imposé par le serveur
+const CHUNK_DURATION_MS = 100;   // taille des paquets envoyés (50-100 ms)
+const SAMPLES_PER_CHUNK = (SAMPLE_RATE * CHUNK_DURATION_MS) / 1000; // 1600
+
+// Code du AudioWorkletProcessor, injecté comme module via un Blob URL afin
+// de garder ce client dans un seul fichier HTML autonome.
+const WORKLET_SOURCE = `
+class PcmCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._buffer = new Float32Array(${SAMPLES_PER_CHUNK});
+    this._writeIndex = 0;
+  }
+
+  process(inputs) {
+    const input = inputs[0];
+    if (!input || input.length === 0) return true;
+    const channelData = input[0]; // mono : un seul canal utilisé
+
+    for (let i = 0; i < channelData.length; i++) {
+      this._buffer[this._writeIndex++] = channelData[i];
+
+      if (this._writeIndex >= this._buffer.length) {
+        // Conversion Float32 [-1, 1] -> Int16 PCM little-endian, tel
+        // qu'attendu par le serveur (server/session_manager.py).
+        const int16 = new Int16Array(this._buffer.length);
+        for (let j = 0; j < this._buffer.length; j++) {
+          const s = Math.max(-1, Math.min(1, this._buffer[j]));
+          int16[j] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        this.port.postMessage(int16.buffer, [int16.buffer]);
+        this._writeIndex = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
+`;
+
+let audioContext = null;
+let mediaStream = null;
+let workletNode = null;
+let sourceNode = null;
+let socket = null;
+
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const statusEl = document.getElementById('status');
+const partialEl = document.getElementById('partial');
+const finalLogEl = document.getElementById('finalLog');
+
+function setStatus(connected) {
+  statusEl.textContent = connected ? 'Connecté' : 'Déconnecté';
+  statusEl.className = connected ? 'connected' : 'disconnected';
+}
+
+function appendFinalSegment(text, speakerId) {
+  const div = document.createElement('div');
+  div.className = 'segment';
+  div.innerHTML = `<span class="speaker">Locuteur ${speakerId} :</span>${text}`;
+  finalLogEl.appendChild(div);
+  finalLogEl.scrollTop = finalLogEl.scrollHeight;
+}
+
+async function start() {
+  const wsUrl = document.getElementById('wsUrl').value.trim();
+  const token = document.getElementById('jwtToken').value.trim();
+  const fullUrl = `${wsUrl}?token=${encodeURIComponent(token)}`;
+
+  // 1) Connexion WebSocket. Le serveur valide le JWT dès la poignée de
+  //    main : si le token est invalide, la connexion se fermera
+  //    immédiatement avec le code 1008.
+  socket = new WebSocket(fullUrl);
+  socket.binaryType = 'arraybuffer';
+
+  socket.onopen = () => setStatus(true);
+  socket.onclose = (event) => {
+    setStatus(false);
+    if (event.code === 1008) {
+      partialEl.textContent = `Authentification refusée : ${event.reason}`;
+    }
+    stopCapture();
+  };
+  socket.onerror = () => setStatus(false);
+
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.status === 'partial') {
+      partialEl.textContent = message.text;
+    } else if (message.status === 'final') {
+      partialEl.textContent = '';
+      appendFinalSegment(message.text, message.speaker_id);
+    }
+  };
+
+  // 2) Capture micro.
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  });
+
+  // On demande directement un AudioContext à 16 kHz : les navigateurs
+  // modernes (Chrome, Firefox, Edge) effectuent le ré-échantillonnage
+  // matériel/logiciel nécessaire de façon transparente.
+  audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+
+  const workletBlobUrl = URL.createObjectURL(
+    new Blob([WORKLET_SOURCE], { type: 'application/javascript' })
+  );
+  await audioContext.audioWorklet.addModule(workletBlobUrl);
+
+  sourceNode = audioContext.createMediaStreamSource(mediaStream);
+  workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor');
+
+  workletNode.port.onmessage = (event) => {
+    // event.data est un ArrayBuffer contenant le PCM 16 bits du chunk.
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(event.data);
+    }
+  };
+
+  sourceNode.connect(workletNode);
+  // Le worklet ne produit pas de sortie audible destinée aux haut-parleurs ;
+  // on ne le connecte donc PAS à audioContext.destination (évite le larsen).
+
+  btnStart.disabled = true;
+  btnStop.disabled = false;
+}
+
+function stopCapture() {
+  if (workletNode) { workletNode.disconnect(); workletNode = null; }
+  if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
+  if (audioContext) { audioContext.close(); audioContext = null; }
+  if (socket && socket.readyState === WebSocket.OPEN) { socket.close(); }
+
+  btnStart.disabled = false;
+  btnStop.disabled = true;
+}
+
+btnStart.addEventListener('click', () => start().catch((err) => {
+  console.error(err);
+  alert(`Erreur lors du démarrage : ${err.message}`);
+  stopCapture();
+}));
+btnStop.addEventListener('click', stopCapture);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+ "lin": [
+  "v_m_lin-specialist_bp0",
+  "v_m_lin-specialist_bp0.5",
+  "v_m_linsna-afrivoicemix_bp0",
+  "v_m_linsna-afrivoicemix_bp0.5",
+  "v_m_linsna-soup5_bp0",
+  "m_soupC"
+ ],
+ "sna": [
+  "v_m_linsna-soup5_bp0",
+  "v_m_sna-specialist_bp0",
+  "v_m_sna-specialist_bp0.5",
+  "v_m_linsna-afrivoicemix_bp1",
+  "v_m_lin-specialist_bp0",
+  "m_soupC"
+ ],
+ "pivot": "v_m_linsna-soup5_bp0",
+ "weights": {
+  "m_soupC": 2.0
+ }
+}

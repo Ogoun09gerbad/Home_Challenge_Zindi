@@ -1,0 +1,10 @@
+# Extra packages for the experiment scripts that are NOT part of the final submission
+# (train.py, decode_lm.py / build_lm.py, whisper_infer.py, baseline_mms.py).
+-r requirements.txt
+accelerate==1.15.0
+peft==0.21.2
+datasets==3.6.0
+evaluate==0.4.6
+scipy==1.17.1
+pyctcdecode==0.5.0
+# kenlm==0.2.0 : needs a C++ compiler (Linux: pip install https://github.com/kpu/kenlm/archive/master.zip)

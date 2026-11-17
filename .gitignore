@@ -1,0 +1,22 @@
+# Environments and secrets
+.venv/
+venv/
+.env
+.claude/
+
+# Python / notebooks caches
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+catboost_info/
+
+# Competition data, model weights and heavy artifacts (not redistributed)
+**/data/
+**/models/
+**/logits/
+**/logs/
+*.arpa
+*.pt
+*.bin
+*.safetensors
+*.ckpt
