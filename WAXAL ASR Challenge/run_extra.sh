@@ -1,5 +1,5 @@
 #!/bin/bash
-# Membre externe propre (autre vocab -> vote au niveau texte uniquement)
+# Clean external member (different vocab -> text-level vote only)
 cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8 HF_HUB_DISABLE_SYMLINKS_WARNING=1
 M="keystats/w2v-bert-2.0-multilingual-waxal-shona-lingala-luganda-best"; T="x_keystats"

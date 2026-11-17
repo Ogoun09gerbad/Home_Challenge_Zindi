@@ -1,14 +1,15 @@
 """
-Interception et validation du jeton d'authentification (JWT) lors de la
-poignée de main WebSocket.
+Interception and validation of the authentication token (JWT) during the
+WebSocket handshake.
 
-Le protocole WebSocket ne permet pas de renvoyer un header 401 arbitraire
-comme le ferait une route HTTP classique : la seule option correcte côté
-client/serveur est soit de rejeter la connexion en amont (avant `accept()`)
-en fermant avec un code applicatif dédié, soit d'exiger le jeton dans le
-premier message une fois la connexion établie. Ici, on choisit la première
-approche (jeton transmis en query string `?token=...`) qui est la pratique
-la plus répandue, tout en documentant l'alternative "premier message".
+The WebSocket protocol does not allow returning an arbitrary 401 header the
+way a regular HTTP route would: the only correct options on the
+client/server side are either to reject the connection upfront (before
+`accept()`) by closing it with a dedicated application code, or to require
+the token in the first message once the connection is established. Here we
+choose the first approach (token passed in the query string `?token=...`),
+which is the most widespread practice, while documenting the "first message"
+alternative.
 """
 
 from __future__ import annotations
@@ -24,18 +25,18 @@ logger = logging.getLogger("asr_server.security")
 
 
 class AuthenticationError(Exception):
-    """Levée quand le jeton JWT est absent, invalide, expiré ou malformé."""
+    """Raised when the JWT is missing, invalid, expired or malformed."""
 
 
 def _decode_token(token: str) -> dict:
-    """Décode et vérifie la signature + l'expiration d'un JWT.
+    """Decodes a JWT and verifies its signature + expiration.
 
-    Lève AuthenticationError si le jeton n'est pas valide. Ne fait AUCUNE
-    hypothèse sur le contenu du payload au-delà des claims standard
-    (exp, sub) : à adapter selon votre IdP (rôles, scopes, tenant_id...).
+    Raises AuthenticationError if the token is not valid. Makes NO
+    assumption about the payload content beyond the standard claims
+    (exp, sub): adapt to your IdP as needed (roles, scopes, tenant_id...).
     """
     if not token:
-        raise AuthenticationError("Jeton JWT manquant.")
+        raise AuthenticationError("Missing JWT.")
 
     try:
         payload = jwt.decode(
@@ -45,32 +46,32 @@ def _decode_token(token: str) -> dict:
             options={"require": ["exp", "sub"]},
         )
     except jwt.ExpiredSignatureError as exc:
-        raise AuthenticationError("Jeton JWT expiré.") from exc
+        raise AuthenticationError("Expired JWT.") from exc
     except jwt.InvalidTokenError as exc:
-        raise AuthenticationError(f"Jeton JWT invalide : {exc}") from exc
+        raise AuthenticationError(f"Invalid JWT: {exc}") from exc
 
     return payload
 
 
 async def authenticate_websocket(websocket: WebSocket) -> dict:
-    """Valide le jeton JWT porté par la requête de handshake WebSocket.
+    """Validates the JWT carried by the WebSocket handshake request.
 
-    À appeler AVANT `websocket.accept()`. En cas d'échec, ferme proprement
-    la connexion avec le code de policy violation (1008) et lève
-    AuthenticationError pour interrompre le traitement de la route.
+    Must be called BEFORE `websocket.accept()`. On failure, cleanly closes
+    the connection with the policy violation code (1008) and raises
+    AuthenticationError to abort processing of the route.
 
-    Retourne le payload décodé (claims) en cas de succès, afin que
-    l'appelant puisse l'associer à la session (identité de l'utilisateur,
-    tenant, permissions, etc.).
+    Returns the decoded payload (claims) on success, so that the caller can
+    associate it with the session (user identity, tenant, permissions,
+    etc.).
     """
     token = websocket.query_params.get("token")
 
     try:
         payload = _decode_token(token)
     except AuthenticationError as exc:
-        logger.warning("Handshake WebSocket refusé : %s", exc)
+        logger.warning("WebSocket handshake rejected: %s", exc)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc))
         raise
 
-    logger.info("Handshake WebSocket authentifié pour sub=%s", payload.get("sub"))
+    logger.info("WebSocket handshake authenticated for sub=%s", payload.get("sub"))
     return payload

@@ -1,9 +1,9 @@
-"""Décodage CTC avec LM n-gramme (pyctcdecode + kenlm) et LID textuelle, à partir de log-probs sauvegardés.
-- LID : Naive Bayes sur n-grammes de caractères (1-4), entraîné sur les transcriptions du train, appliqué à l'hypothèse gloutonne.
-- LM : un ARPA par langue (build_lm.py), mots normalisés (minuscules, sans ponctuation) avant requête kenlm ;
-  le modèle acoustique garde casse et ponctuation.
-Usage :
-  python decode_lm.py grid --tag anyraw --model anyantudre/waxal-w2vbert-linsnalug-raw      # réglage alpha/beta par langue sur la validation
+"""CTC decoding with an n-gram LM (pyctcdecode + kenlm) and text LID, from saved log-probs.
+- LID: Naive Bayes on character n-grams (1-4), trained on train transcriptions, applied to the greedy hypothesis.
+- LM: one ARPA per language (build_lm.py), words normalised (lower-case, no punctuation) before the kenlm query;
+  the acoustic model keeps case and punctuation.
+Usage:
+  python decode_lm.py grid --tag anyraw --model anyantudre/waxal-w2vbert-linsnalug-raw      # per-language alpha/beta tuning on validation
   python decode_lm.py decode --tag anyraw --split test --model ... --params lm/params_anyraw.json --out logs/anyraw_test_lm.csv
 """
 import argparse, itertools, json
@@ -14,12 +14,12 @@ import numpy as np
 import pandas as pd
 
 from common import LANGS, ROOT, clean_raw, normalize, score, score_by_lang
-from lid import CharNB, train_lid  # noqa: F401  (LID textuelle, déplacée dans lid.py ; ré-exportée pour les anciens scripts)
+from lid import CharNB, train_lid  # noqa: F401  (text LID, moved to lid.py; re-exported for older scripts)
 
 LM_DIR = ROOT / "lm"
 
 
-# ---- décodeur ----------------------------------------------------------------------
+# ---- decoder -----------------------------------------------------------------------
 def labels_from_processor(model_path):
     from transformers import AutoProcessor
     tok = AutoProcessor.from_pretrained(model_path).tokenizer
@@ -32,7 +32,7 @@ def labels_from_processor(model_path):
         elif t == tok.pad_token:
             labels.append("")  # blank CTC
         elif t is None or t == tok.unk_token or (t.startswith(("<", "[")) and len(t) > 1):
-            labels.append(chr(0xE000 + i))  # spéciaux : caractère privé unique, retiré à la sortie
+            labels.append(chr(0xE000 + i))  # special tokens: unique private-use character, stripped from the output
         else:
             labels.append(t)
     return labels
@@ -50,7 +50,7 @@ def _init_worker(labels, langs):
     from pyctcdecode.language_model import LanguageModel
 
     class NormLM(LanguageModel):
-        """Le LM voit les mots normalisés ; un token réduit à de la ponctuation n'est pas scoré par le LM."""
+        """The LM sees normalised words; a token reduced to punctuation only is not scored by the LM."""
         def score_partial_token(self, partial_token):
             return super().score_partial_token(normalize(partial_token))
 
@@ -92,13 +92,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["grid", "decode"])
     ap.add_argument("--tag", required=True)
-    ap.add_argument("--model", required=True, help="pour récupérer le vocabulaire CTC")
+    ap.add_argument("--model", required=True, help="to retrieve the CTC vocabulary")
     ap.add_argument("--split", default="validation")
     ap.add_argument("--params", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--beam", type=int, default=48)
-    ap.add_argument("--langs", nargs="+", default=None, help="langues à régler (grid)")
+    ap.add_argument("--langs", nargs="+", default=None, help="languages to tune (grid)")
     a = ap.parse_args()
     labels = labels_from_processor(a.model)
     df, logps = load_logits(a.tag, a.split)
@@ -106,7 +106,7 @@ def main():
     df["lid"] = [lid.predict(h) for h in df.hyp]
     if "language" in df and a.split != "test":
         acc = (df.lid == df.language).mean()
-        print(f"LID textuelle : précision {acc:.4f}\n", pd.crosstab(df.language, df.lid))
+        print(f"Text LID: accuracy {acc:.4f}\n", pd.crosstab(df.language, df.lid))
 
     if a.mode == "grid":
         alphas, betas = [0.0, 0.2, 0.35, 0.5, 0.7], [0.0, 1.0, 2.0]
@@ -122,15 +122,15 @@ def main():
                 rows.append((al, be, s["wer"], s["cer"], s["score"]))
                 print(f"{lang} alpha={al} beta={be}  WER={s['wer']:.4f} CER={s['cer']:.4f} score={s['score']:.4f}", flush=True)
             r = max(rows, key=lambda x: x[4]); best[lang] = [r[0], r[1]]
-            print(f"==> {lang}: meilleur alpha={r[0]} beta={r[1]} score={r[4]:.4f}")
+            print(f"==> {lang}: best alpha={r[0]} beta={r[1]} score={r[4]:.4f}")
         out = LM_DIR / f"params_{a.tag}.json"
         if out.exists():
             best = {**json.loads(out.read_text()), **best}
         out.write_text(json.dumps(best, indent=1)); print("->", out, best)
-        # simulation Phase 2 : langue prédite par la LID, pas la colonne langue
+        # Phase 2 simulation: language predicted by the LID, not the language column
         df["hyp_lm"] = run_decode(logps, df.lid.tolist(), best, labels, a.workers, a.beam)
         print("\nGreedy :\n", score_by_lang(df, hyp_col="hyp", ref_col="ref").round(4).to_markdown())
-        print("\nLID + LM (sans métadonnées) :\n", score_by_lang(df, hyp_col="hyp_lm", ref_col="ref").round(4).to_markdown())
+        print("\nLID + LM (no metadata):\n", score_by_lang(df, hyp_col="hyp_lm", ref_col="ref").round(4).to_markdown())
     else:
         params = json.loads(Path(a.params).read_text())
         df["hyp_lm"] = run_decode(logps, df.lid.tolist(), params, labels, a.workers, a.beam)

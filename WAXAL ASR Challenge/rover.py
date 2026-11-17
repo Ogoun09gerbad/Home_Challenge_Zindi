@@ -1,11 +1,11 @@
-"""Vote ROVER au niveau caractère, ancré sur un squelette (algorithme d'anyantudre, 2e du WAXAL original,
-dépôt MIT, réimplémenté) : chaque membre est aligné sur le squelette (Levenshtein.opcodes) ; pour chaque
-caractère et chaque emplacement d'insertion, le contenu le plus pondéré remplace celui de l'ancre s'il en
-diffère et totalise >= seuil. Contrairement au MBR, deux membres d'accord peuvent ajouter un mot manquant.
-Usage :
+"""Character-level ROVER vote anchored on a skeleton (anyantudre's algorithm, 2nd in the original WAXAL,
+MIT repository, re-implemented): each member is aligned to the skeleton (Levenshtein.opcodes); for each
+character and each insertion slot, the highest-weighted content replaces the anchor's if it
+differs and totals >= threshold. Unlike MBR, two agreeing members can add a missing word.
+Usage:
   python rover.py --split validation_lin-sna --config configs/rover_G.json --out logs/rover_G_val.csv
-  python rover.py --grid   (grille sur la validation)
-config : {"members": [...], "anchor": "v_m_...", "threshold": 2.0, "skeleton": "anchor"|"mbr",
+  python rover.py --grid   (grid on the validation split)
+config: {"members": [...], "anchor": "v_m_...", "threshold": 2.0, "skeleton": "anchor"|"mbr",
           "weights": {...}, "by_lang": {"lin": {"members": [...], "anchor": ...}, "sna": {...}}}"""
 import argparse, itertools, json
 from concurrent.futures import ProcessPoolExecutor
@@ -49,7 +49,7 @@ def _win(tally, cand, cur, wc, margin):
 
 
 def rover(hyps, weights, wc=2.0, skeleton="anchor", margin=None):
-    """hyps[0] = ancre. Renvoie la chaîne votée. margin : remplace seulement si poids(candidat) - poids(contenu de l'ancre) >= margin."""
+    """hyps[0] = anchor. Returns the voted string. margin: replace only if weight(candidate) - weight(anchor content) >= margin."""
     keep = [(h, w) for h, w in zip(hyps, weights) if h.strip()]
     if not hyps[0].strip() or len(keep) < 2:
         return hyps[0]
@@ -165,7 +165,7 @@ def main():
     ap.add_argument("--grid", action="store_true")
     ap.add_argument("--split")
     ap.add_argument("--config")
-    ap.add_argument("--name", help="clé dans configs/rover_grid.json (au lieu de --config)")
+    ap.add_argument("--name", help="key in configs/rover_grid.json (instead of --config)")
     ap.add_argument("--out")
     a = ap.parse_args()
     if a.grid:

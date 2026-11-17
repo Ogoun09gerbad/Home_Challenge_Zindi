@@ -1,19 +1,19 @@
-"""GAM probit à P-splines : second modèle additif du blend final.
+"""Probit P-spline GAM: second additive model of the final blend.
 
-Le bruit du générateur de cibles est gaussien (experiments.md, 2026-10-10), donc
-P(y=1|x) = Φ(b + Σ_j f_j(x_j)). LightGBM estime chaque f_j en escalier ; ce modèle
-les estime par des courbes lisses à base de splines, ce qui donne des erreurs
-différentes et améliore le blend.
+The noise of the target generator is Gaussian (experiments.md, 2026-10-10), so
+P(y=1|x) = Φ(b + Σ_j f_j(x_j)). LightGBM estimates each f_j as a step function; this
+model estimates them as smooth spline-based curves, which gives different errors
+and improves the blend.
 
-Pour chaque feature : transformation par le rang (uniformise les ratios très
-asymétriques), B-splines cubiques centrées à n_knots nœuds, pénalité λ sur les
-différences secondes des coefficients (P-splines d'Eilers et Marx), monotonie
-optionnelle par coefficients de même signe (mêmes sens que LightGBM).
+For each feature: rank transformation (uniformises highly skewed
+ratios), centred cubic B-splines with n_knots knots, penalty λ on the
+second differences of the coefficients (Eilers and Marx P-splines), optional
+monotonicity via same-sign coefficients (same directions as LightGBM).
 
-Déterministe (L-BFGS-B à gradient exact, pas de seed), mais les produits matriciels
-tournent sur un seul thread : la vraisemblance est plate le long de certaines
-directions, et sans ça le point d'arrêt de L-BFGS-B dépendait du nombre de cœurs de
-la machine (écarts jusqu'à 8e-4 sur une probabilité).
+Deterministic (L-BFGS-B with exact gradient, no seed), but the matrix products
+run on a single thread: the likelihood is flat along some
+directions, and without this the L-BFGS-B stopping point depended on the machine's
+number of cores (differences of up to 8e-4 on a probability).
 """
 
 import numpy as np
@@ -25,17 +25,17 @@ SPLINE_DEGREE = 3
 
 
 def _rank_transform(train_sorted, x):
-    """Rang moyen de x parmi les valeurs du train (ex aequo compris), ramené à [0, 1]."""
+    """Mean rank of x among the train values (ties included), scaled to [0, 1]."""
     below = np.searchsorted(train_sorted, x, side="left")
     below_or_equal = np.searchsorted(train_sorted, x, side="right")
     return (below + below_or_equal) / (2 * len(train_sorted))
 
 
 class ProbitGAM:
-    """Modèle additif probit à P-splines, avec contraintes de monotonie optionnelles.
+    """Additive probit P-spline model, with optional monotonicity constraints.
 
-    `monotone` : liste alignée sur les colonnes, 1 (croissante), -1 (décroissante) ou
-    0 (libre).
+    `monotone`: list aligned with the columns, 1 (increasing), -1 (decreasing) or
+    0 (free).
     """
 
     def __init__(self, n_knots=20, lam=5.0, monotone=None, max_iter=5000):
@@ -58,9 +58,9 @@ class ProbitGAM:
 
     def _fit(self, X, y, sample_weight=None):
         X, y = np.asarray(X, dtype=float), np.asarray(y, dtype=float)
-        # Poids d'échantillon (pseudo-labeling, 2026-10-15) : étiquette douce y∈[0,1] et
-        # poids w, taille effective n_eff=Σw à la place de n pour garder la force de la
-        # pénalité λ comparable (sinon noyée par les lignes de test ajoutées).
+        # Sample weights (pseudo-labeling, 2026-10-15): soft label y∈[0,1] and
+        # weight w, effective size n_eff=Σw instead of n to keep the strength of the
+        # penalty λ comparable (otherwise drowned out by the added test rows).
         w = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, dtype=float)
         n_eff = w.sum()
         n, p = X.shape
@@ -68,9 +68,9 @@ class ProbitGAM:
         self.train_sorted_ = [np.sort(X[:, j]) for j in range(p)]
         self.basis_means_ = [self._raw_basis(j, X[:, j]).mean(axis=0) for j in range(p)]
 
-        # Coefficients de la feature j : beta_j = [0, cumsum(delta_j)]. La courbe est
-        # monotone si tous les incréments delta_j ont le même signe (bornes L-BFGS-B).
-        # Comme la base est centrée, le premier coefficient est fixé à 0 sans perte.
+        # Coefficients of feature j: beta_j = [0, cumsum(delta_j)]. The curve is
+        # monotone if all increments delta_j have the same sign (L-BFGS-B bounds).
+        # Since the basis is centred, the first coefficient is fixed to 0 without loss.
         cumsum = np.vstack([np.zeros(n_basis - 1), np.tril(np.ones((n_basis - 1, n_basis - 1)))])
         second_diff = np.diff(np.eye(n_basis), 2, axis=0) @ cumsum
         penalty = second_diff.T @ second_diff
@@ -103,7 +103,7 @@ class ProbitGAM:
         return self
 
     def decision_function(self, X):
-        """Score η sur l'échelle probit."""
+        """Score η on the probit scale."""
         X = np.asarray(X, dtype=float)
         eta = np.full(len(X), self.intercept_)
         with threadpool_limits(limits=1, user_api="blas"):

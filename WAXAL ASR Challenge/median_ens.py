@@ -1,7 +1,7 @@
-"""Médiane de chaînes (niveau caractère) entre hypothèses : candidats = hypothèses + chaînes intermédiaires sur les
-chemins d'édition de Levenshtein entre paires ; on garde le candidat minimisant sum_j w_j * Lev(c, h_j).
-Même principe que la solution 1ère place (median_extended). Routage par LID textuelle comme mbr_routed.py.
-Usage : python median_ens.py --split validation_lin-sna --config configs/F_clean_small.json --out logs/med_F_val.csv"""
+"""Median string (character level) across hypotheses: candidates = hypotheses + intermediate strings along the
+pairwise Levenshtein edit paths; the candidate minimising sum_j w_j * Lev(c, h_j) is kept.
+Same principle as the 1st-place solution (median_extended). Routing by text LID as in mbr_routed.py.
+Usage: python median_ens.py --split validation_lin-sna --config configs/F_clean_small.json --out logs/med_F_val.csv"""
 import argparse, json
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -34,7 +34,7 @@ def median_string(hyps, w, rounds=2):
     def cost(c):
         return sum(wj * L.distance(c, h) for wj, h in zip(w, hyps))
     best = min(cands, key=lambda c: (cost(c), c not in hyps))
-    for _ in range(rounds - 1):  # raffinement : intermédiaires entre le meilleur et chaque hypothèse
+    for _ in range(rounds - 1):  # refinement: intermediates between the best and each hypothesis
         new = set()
         for h in hyps:
             if h != best:

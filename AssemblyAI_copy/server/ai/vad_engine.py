@@ -1,17 +1,16 @@
 """
-Détection d'activité vocale (VAD) streaming avec Silero VAD.
+Streaming voice activity detection (VAD) with Silero VAD.
 
-Silero VAD exige des fenêtres d'exactement 512 échantillons pour un flux à
-16 kHz. Les paquets audio reçus du client (50-100 ms, soit 800 à 1600
-échantillons) ne sont pas des multiples de 512 : ce module absorbe cette
-différence via un petit buffer interne qui accumule les échantillons
-entrants et ne consomme que des fenêtres complètes de 512, en conservant le
-reliquat pour l'appel suivant.
+Silero VAD requires windows of exactly 512 samples for a 16 kHz stream.
+Audio packets received from the client (50-100 ms, i.e. 800 to 1600
+samples) are not multiples of 512: this module absorbs the difference with
+a small internal buffer that accumulates incoming samples and only consumes
+complete 512-sample windows, keeping the remainder for the next call.
 
-Le modèle est chargé une seule fois au niveau du process (poids embarqués
-dans le package pip `silero-vad`, donc aucun accès réseau après la première
-installation) et partagé en lecture seule entre toutes les sessions ; seul
-l'état de streaming (`VADIterator`) est propre à chaque session.
+The model is loaded only once per process (weights bundled in the
+`silero-vad` pip package, so no network access is needed after the first
+installation) and shared read-only across all sessions; only the streaming
+state (`VADIterator`) is specific to each session.
 """
 
 from __future__ import annotations
@@ -34,25 +33,25 @@ from server.config import (
 
 logger = logging.getLogger("asr_server.vad")
 
-# Modèle Silero VAD chargé une seule fois pour tout le process (thread-safe
-# en inférence pure car chaque appel est stateless côté poids ; l'état de
-# streaming vit dans VADIterator, instancié par session plus bas).
+# Silero VAD model loaded only once for the whole process (thread-safe for
+# pure inference since each call is stateless with respect to the weights;
+# the streaming state lives in VADIterator, instantiated per session below).
 _VAD_MODEL = load_silero_vad(onnx=False)
 
 
 @dataclass
 class VadEvent:
-    """Résultat de l'analyse d'un paquet audio par le VAD."""
+    """Result of the VAD analysis of an audio packet."""
 
     speech_started: bool = False
-    # True dès que le VAD confirme un silence continu >= VAD_MIN_SILENCE_MS
-    # après un segment de parole : c'est le signal d' "Endpoint".
+    # True as soon as the VAD confirms continuous silence >= VAD_MIN_SILENCE_MS
+    # after a speech segment: this is the "Endpoint" signal.
     endpoint_reached: bool = False
 
 
 @dataclass
 class VadSessionState:
-    """État de streaming du VAD propre à UNE session utilisateur."""
+    """VAD streaming state specific to ONE user session."""
 
     iterator: VADIterator = field(
         default_factory=lambda: VADIterator(
@@ -63,21 +62,21 @@ class VadSessionState:
             speech_pad_ms=VAD_SPEECH_PAD_MS,
         )
     )
-    # Reliquat d'échantillons (float32, [-1, 1]) en attente d'atteindre
-    # VAD_WINDOW_SAMPLES pour pouvoir être soumis au modèle.
+    # Leftover samples (float32, [-1, 1]) waiting to reach
+    # VAD_WINDOW_SAMPLES before they can be fed to the model.
     _pending: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     in_speech: bool = False
 
     def reset(self) -> None:
-        """Réinitialise l'état interne (à appeler après chaque Endpoint)."""
+        """Resets the internal state (to be called after each Endpoint)."""
         self.iterator.reset_states()
         self._pending = np.zeros(0, dtype=np.float32)
         self.in_speech = False
 
     def process(self, audio_float32: np.ndarray) -> VadEvent:
-        """Analyse un nouveau paquet audio et retourne les événements détectés.
+        """Analyzes a new audio packet and returns the detected events.
 
-        `audio_float32` doit être mono, 16 kHz, normalisé dans [-1, 1].
+        `audio_float32` must be mono, 16 kHz, normalized to [-1, 1].
         """
         event = VadEvent()
 
@@ -100,7 +99,7 @@ class VadSessionState:
                 self.in_speech = False
                 event.endpoint_reached = True
 
-        # On conserve le reliquat non multiple de 512 pour le prochain appel.
+        # Keep the remainder that is not a multiple of 512 for the next call.
         remainder_start = n_complete_windows * VAD_WINDOW_SAMPLES
         self._pending = buffer[remainder_start:]
 

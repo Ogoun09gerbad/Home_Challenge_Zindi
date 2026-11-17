@@ -1,20 +1,20 @@
 """
-Gestionnaire de session de transcription : file d'attente en mémoire vive,
-buffers audio, et boucle asynchrone orchestrant VAD + ASR (Local Agreement)
-pour UNE connexion WebSocket.
+Transcription session manager: in-memory queue, audio buffers, and the
+asynchronous loop orchestrating VAD + ASR (Local Agreement) for ONE
+WebSocket connection.
 
-Flux général par session :
+Overall flow per session:
 
-    WebSocket.receive_bytes()  ->  asyncio.Queue  ->  boucle de traitement
-                                                          |-> VAD (endpoint ?)
+    WebSocket.receive_bytes()  ->  asyncio.Queue  ->  processing loop
+                                                          |-> VAD (endpoint?)
                                                           |-> ASR (Local Agreement)
                                                           |-> WebSocket.send_json()
 
-Toutes les données audio transitent exclusivement en mémoire vive
-(numpy.ndarray / bytes Python) : aucune écriture disque n'est effectuée à
-quelque étape que ce soit. Les buffers sont explicitement libérés (`del` +
-`gc.collect()`) dès qu'une phrase est finalisée ou que la session se
-termine, conformément à la contrainte de confidentialité absolue.
+All audio data flows exclusively through RAM (numpy.ndarray / Python
+bytes): no disk write is performed at any stage. Buffers are explicitly
+released (`del` + `gc.collect()`) as soon as an utterance is finalized or
+the session ends, in accordance with the strict confidentiality
+requirement.
 """
 
 from __future__ import annotations
@@ -43,51 +43,51 @@ from server.config import (
 
 logger = logging.getLogger("asr_server.session")
 
-# Pool de threads partagé par toutes les sessions pour exécuter les appels
-# bloquants à faster-whisper sans geler la boucle asyncio. La taille est
-# bornée par WHISPER_MAX_CONCURRENT_INFERENCES (cf. config.py) pour éviter
-# la contention GPU/CPU en cas de nombreuses sessions simultanées.
+# Thread pool shared by all sessions to run blocking faster-whisper calls
+# without freezing the asyncio loop. Its size is bounded by
+# WHISPER_MAX_CONCURRENT_INFERENCES (see config.py) to avoid GPU/CPU
+# contention when many sessions are active simultaneously.
 _inference_executor = ThreadPoolExecutor(
     max_workers=WHISPER_MAX_CONCURRENT_INFERENCES,
     thread_name_prefix="asr-inference",
 )
-# Sémaphore miroir de la taille du pool : garantit qu'on ne soumet jamais
-# plus de tâches en vol que de workers disponibles, évitant un
-# empilement de futures en attente qui ferait dériver la latence.
+# Semaphore mirroring the pool size: guarantees we never submit more
+# in-flight tasks than available workers, avoiding a pile-up of pending
+# futures that would make latency drift.
 _inference_semaphore = asyncio.Semaphore(WHISPER_MAX_CONCURRENT_INFERENCES)
 
-# Une seule instance de "phrase" == 1 message final. speaker_id est fixé à 1
-# car ce système ne fait pas de diarisation multi-locuteur (extension
-# possible via pyannote.audio, hors périmètre de cette implémentation).
+# One "utterance" instance == 1 final message. speaker_id is fixed to 1
+# because this system does not perform multi-speaker diarization (possible
+# extension via pyannote.audio, outside the scope of this implementation).
 DEFAULT_SPEAKER_ID = 1
 
 
 def _pcm16_bytes_to_float32(chunk: bytes) -> np.ndarray:
-    """Convertit un paquet PCM 16 bits little-endian brut en float32
-    normalisé dans [-1, 1], sans jamais toucher le disque."""
+    """Converts a raw little-endian 16-bit PCM packet to float32 normalized
+    to [-1, 1], without ever touching the disk."""
     int16_array = np.frombuffer(chunk, dtype="<i2")
     return int16_array.astype(np.float32) / 32768.0
 
 
 @dataclass
 class UtteranceState:
-    """État de la phrase actuellement en cours de transcription.
+    """State of the utterance currently being transcribed.
 
-    Réinitialisé à chaque Endpoint (fin de phrase détectée par le VAD).
+    Reset at each Endpoint (end of utterance detected by the VAD).
     """
 
-    # Audio non encore confirmé par le Local Agreement (float32, 16 kHz).
+    # Audio not yet confirmed by Local Agreement (float32, 16 kHz).
     pending_audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
-    # Mots déjà confirmés pour la phrase en cours (deviendront le texte
-    # final une fois l'Endpoint atteint).
+    # Words already confirmed for the current utterance (will become the
+    # final text once the Endpoint is reached).
     committed_words: List[str] = field(default_factory=list)
     agreement: LocalAgreementBuffer = field(default_factory=LocalAgreementBuffer)
-    # Horodatage (monotonic) du dernier échantillon ajouté depuis la
-    # dernière inférence, pour throttler les appels à Whisper.
+    # Number of samples added since the last inference, used to throttle
+    # calls to Whisper.
     samples_since_last_inference: int = 0
 
     def purge(self) -> None:
-        """Libère explicitement les buffers de la phrase courante."""
+        """Explicitly releases the buffers of the current utterance."""
         del self.pending_audio
         del self.committed_words
         self.pending_audio = np.zeros(0, dtype=np.float32)
@@ -97,9 +97,9 @@ class UtteranceState:
 
 
 class TranscriptionSession:
-    """Gère le cycle de vie complet d'une connexion WebSocket de
-    transcription : ingestion, file d'attente, traitement, envoi des
-    résultats, et nettoyage mémoire strict à la déconnexion.
+    """Manages the full lifecycle of a transcription WebSocket connection:
+    ingestion, queueing, processing, sending results, and strict memory
+    cleanup on disconnect.
     """
 
     def __init__(self, websocket: WebSocket, user_claims: dict):
@@ -107,10 +107,10 @@ class TranscriptionSession:
         self.websocket = websocket
         self.user_claims = user_claims
 
-        # File d'attente en mémoire vive des paquets binaires entrants.
-        # Bornée pour appliquer une backpressure explicite plutôt que de
-        # laisser la mémoire croître indéfiniment si le producteur (réseau)
-        # est plus rapide que le consommateur (VAD+ASR).
+        # In-memory queue of incoming binary packets. Bounded to apply
+        # explicit backpressure rather than letting memory grow
+        # indefinitely if the producer (network) is faster than the
+        # consumer (VAD+ASR).
         self.input_queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue(
             maxsize=MAX_QUEUE_SIZE_PER_SESSION
         )
@@ -122,23 +122,22 @@ class TranscriptionSession:
         self._closed = False
 
     # ------------------------------------------------------------------
-    # Producteur : réception réseau -> file d'attente
+    # Producer: network reception -> queue
     # ------------------------------------------------------------------
     async def receive_loop(self) -> None:
-        """Lit en continu les paquets binaires du WebSocket et les pousse
-        dans la file d'attente. S'arrête proprement sur déconnexion."""
+        """Continuously reads binary packets from the WebSocket and pushes
+        them into the queue. Stops cleanly on disconnect."""
         try:
             while True:
                 message = await self.websocket.receive_bytes()
                 try:
                     self.input_queue.put_nowait(message)
                 except asyncio.QueueFull:
-                    # Backpressure : on supprime le paquet le plus ancien
-                    # plutôt que le plus récent, pour privilégier la
-                    # fraîcheur (temps réel) au prix d'un léger trou audio
-                    # en cas de surcharge exceptionnelle.
+                    # Backpressure: drop the oldest packet rather than the
+                    # newest, favoring freshness (real time) at the cost of
+                    # a small audio gap under exceptional overload.
                     logger.warning(
-                        "[%s] File d'attente saturée, paquet le plus ancien supprimé.",
+                        "[%s] Queue full, oldest packet dropped.",
                         self.session_id,
                     )
                     try:
@@ -147,19 +146,19 @@ class TranscriptionSession:
                         pass
                     await self.input_queue.put(message)
         except WebSocketDisconnect:
-            logger.info("[%s] Client déconnecté.", self.session_id)
+            logger.info("[%s] Client disconnected.", self.session_id)
         finally:
-            # Sentinelle de fin pour réveiller la boucle de traitement.
+            # End-of-stream sentinel to wake up the processing loop.
             await self.input_queue.put(None)
 
     # ------------------------------------------------------------------
-    # Consommateur : file d'attente -> VAD -> ASR -> envoi résultats
+    # Consumer: queue -> VAD -> ASR -> send results
     # ------------------------------------------------------------------
     async def processing_loop(self) -> None:
         try:
             while True:
                 chunk = await self.input_queue.get()
-                if chunk is None:  # sentinelle de fin de flux
+                if chunk is None:  # end-of-stream sentinel
                     break
 
                 await self._handle_chunk(chunk)
@@ -169,11 +168,11 @@ class TranscriptionSession:
     async def _handle_chunk(self, chunk: bytes) -> None:
         audio_float32 = _pcm16_bytes_to_float32(chunk)
 
-        # 1) Endpointing : le VAD consomme l'audio brut indépendamment du
-        #    buffer d'inférence ASR (les deux ont des granularités différentes).
+        # 1) Endpointing: the VAD consumes raw audio independently of the
+        #    ASR inference buffer (the two have different granularities).
         vad_event = self.vad_state.process(audio_float32)
 
-        # 2) Accumulation dans le buffer de la phrase en cours.
+        # 2) Accumulate into the buffer of the current utterance.
         self.utterance.pending_audio = np.concatenate(
             [self.utterance.pending_audio, audio_float32]
         )
@@ -183,14 +182,14 @@ class TranscriptionSession:
             await self._finalize_utterance()
             return
 
-        # 3) Inférence partielle throttlée : on ne relance Whisper que si
-        #    suffisamment de nouvel audio est arrivé depuis la dernière fois.
+        # 3) Throttled partial inference: Whisper is only re-run if enough
+        #    new audio has arrived since the last time.
         new_audio_ms = (self.utterance.samples_since_last_inference / SAMPLE_RATE) * 1000
         if new_audio_ms >= ASR_MIN_NEW_AUDIO_MS and self.utterance.pending_audio.size > 0:
             await self._run_partial_inference()
 
     # ------------------------------------------------------------------
-    # Inférence partielle (mode "partial") avec Local Agreement
+    # Partial inference ("partial" mode) with Local Agreement
     # ------------------------------------------------------------------
     async def _run_partial_inference(self) -> None:
         prompt = " ".join(self.utterance.committed_words) or None
@@ -213,14 +212,14 @@ class TranscriptionSession:
             )
 
             self.utterance.committed_words.extend(result.confirmed_words)
-            # On ne conserve que l'audio pas encore consommé par les mots
-            # confirmés : réduit le coût des inférences suivantes et évite
-            # de re-confirmer indéfiniment les mêmes mots.
+            # Keep only the audio not yet consumed by the confirmed words:
+            # reduces the cost of subsequent inferences and avoids
+            # re-confirming the same words indefinitely.
             trimmed = self.utterance.pending_audio[cut_sample:].copy()
             del self.utterance.pending_audio
             self.utterance.pending_audio = trimmed
-            # Le buffer audio a changé : l'hypothèse précédente n'est plus
-            # comparable telle quelle, on repart sur une comparaison fraîche.
+            # The audio buffer has changed: the previous hypothesis is no
+            # longer directly comparable, so start a fresh comparison.
             self.utterance.agreement.reset()
 
         partial_text = " ".join(self.utterance.committed_words + result.partial_words)
@@ -230,7 +229,7 @@ class TranscriptionSession:
             )
 
     # ------------------------------------------------------------------
-    # Finalisation (mode "final") déclenchée par l'Endpoint du VAD
+    # Finalization ("final" mode) triggered by the VAD Endpoint
     # ------------------------------------------------------------------
     async def _finalize_utterance(self) -> None:
         prompt = " ".join(self.utterance.committed_words) or None
@@ -249,40 +248,40 @@ class TranscriptionSession:
                     "speaker_id": DEFAULT_SPEAKER_ID,
                 }
             )
-            logger.info("[%s] Phrase finalisée : %r", self.session_id, final_text)
+            logger.info("[%s] Utterance finalized: %r", self.session_id, final_text)
 
-        # --- Nettoyage mémoire strict : la phrase est terminée, plus aucune
-        # trace de l'audio brut ni du texte ne doit subsister au-delà de ce
-        # point (contrainte de confidentialité absolue). ---
+        # --- Strict memory cleanup: the utterance is complete, no trace of
+        # the raw audio or the text must remain beyond this point (strict
+        # confidentiality requirement). ---
         self.utterance.purge()
         self.vad_state.reset()
         gc.collect()
 
     async def _flush_remaining_and_cleanup(self) -> None:
-        """Appelé à la fin de processing_loop (déconnexion ou erreur) :
-        finalise une éventuelle phrase en cours puis purge tous les buffers.
+        """Called at the end of processing_loop (disconnect or error):
+        finalizes any utterance in progress, then purges all buffers.
         """
         if self.utterance.pending_audio.size > 0 or self.utterance.committed_words:
             await self._finalize_utterance()
 
-        # Purge finale explicite de tous les objets volumineux de la
-        # session avant que le garbage collector ne les récupère.
+        # Explicit final purge of all large session objects before the
+        # garbage collector reclaims them.
         del self.utterance
         del self.vad_state
         self.utterance = UtteranceState()
         self.vad_state = VadSessionState()
         gc.collect()
         self._closed = True
-        logger.info("[%s] Session nettoyée, mémoire purgée.", self.session_id)
+        logger.info("[%s] Session cleaned up, memory purged.", self.session_id)
 
     # ------------------------------------------------------------------
-    # Utilitaires
+    # Utilities
     # ------------------------------------------------------------------
     async def _transcribe_async(
         self, audio: np.ndarray, prompt: Optional[str]
     ) -> List[WordResult]:
-        """Exécute l'inférence Whisper (bloquante) dans le pool de threads
-        dédié, sans jamais bloquer la boucle asyncio principale."""
+        """Runs the (blocking) Whisper inference in the dedicated thread
+        pool, without ever blocking the main asyncio loop."""
         loop = asyncio.get_running_loop()
         async with _inference_semaphore:
             start = time.monotonic()
@@ -291,7 +290,7 @@ class TranscriptionSession:
             )
             elapsed_ms = (time.monotonic() - start) * 1000
             logger.debug(
-                "[%s] Inférence ASR en %.1f ms sur %.0f ms d'audio.",
+                "[%s] ASR inference took %.1f ms on %.0f ms of audio.",
                 self.session_id,
                 elapsed_ms,
                 (audio.size / SAMPLE_RATE) * 1000,
@@ -303,12 +302,12 @@ class TranscriptionSession:
             return
         try:
             await self.websocket.send_json(payload)
-        except Exception:  # connexion fermée entre-temps
-            logger.debug("[%s] Envoi impossible, connexion probablement fermée.", self.session_id)
+        except Exception:  # connection closed in the meantime
+            logger.debug("[%s] Send failed, connection probably closed.", self.session_id)
 
     async def run(self) -> None:
-        """Point d'entrée : démarre producteur et consommateur en parallèle
-        et attend leur terminaison conjointe."""
+        """Entry point: starts the producer and consumer in parallel and
+        waits for both to finish."""
         receiver = asyncio.create_task(self.receive_loop(), name=f"recv-{self.session_id}")
         processor = asyncio.create_task(self.processing_loop(), name=f"proc-{self.session_id}")
 

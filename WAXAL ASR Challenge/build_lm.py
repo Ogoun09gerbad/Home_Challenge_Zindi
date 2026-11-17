@@ -1,6 +1,6 @@
-"""LM n-gramme de mots (Kneser-Ney interpolé) écrit au format ARPA, en Python pur (pas besoin de lmplz).
-Texte = transcriptions normalisées du split train (jamais validation/test). Une LM par langue + une commune.
-Usage : python build_lm.py --order 4 -> lm/{lin,sna,lug,all}.arpa (+ .unigrams.txt pour pyctcdecode)"""
+"""Word n-gram LM (interpolated Kneser-Ney) written in ARPA format, in pure Python (no need for lmplz).
+Text = normalised transcriptions of the train split (never validation/test). One LM per language + a shared one.
+Usage: python build_lm.py --order 4 -> lm/{lin,sna,lug,all}.arpa (+ .unigrams.txt for pyctcdecode)"""
 import argparse, math
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -23,7 +23,7 @@ def build_arpa(sentences, order, path):
         for k in range(1, order + 1):
             for i in range(len(toks) - k + 1):
                 raw[k][tuple(toks[i:i + k])] += 1
-    # comptes ajustés : continuation (nb de voisins gauches distincts) sauf ordre max ou n-gramme commençant par <s>
+    # adjusted counts: continuation (number of distinct left neighbours) except for max order or n-grams starting with <s>
     adj = [None] * (order + 1)
     adj[order] = raw[order]
     for k in range(order - 1, 0, -1):
@@ -32,8 +32,8 @@ def build_arpa(sentences, order, path):
         adj[k] = Counter({g: c for g, c in adj[k].items() if c > 0 or g == (BOS,)})
     vocab = [g[0] for g in raw[1]]
     prob, gamma = [dict() for _ in range(order + 1)], [dict() for _ in range(order + 1)]
-    # unigrammes interpolés avec l'uniforme
-    uni = {g: c for g, c in adj[1].items() if g != (BOS,)}  # <s> n'est jamais prédit
+    # unigrams interpolated with the uniform distribution
+    uni = {g: c for g, c in adj[1].items() if g != (BOS,)}  # <s> is never predicted
     D = discount(uni); tot = sum(uni.values()); V = len(uni) + 1
     g0 = D * len(uni) / tot
     for g, c in uni.items():
@@ -68,7 +68,7 @@ def build_arpa(sentences, order, path):
 
 
 def backoff_prob(g, prob, gamma):
-    """p(w|h) par backoff ARPA standard."""
+    """p(w|h) via standard ARPA backoff."""
     k = len(g)
     if k == 1:
         return prob[1].get(g) or prob[1][(UNK,)]
@@ -91,7 +91,7 @@ def main():
         if not sents:
             continue
         n = build_arpa(sents, a.order, out / f"{lang}.arpa")
-        print(lang, len(sents), "phrases ->", n)
+        print(lang, len(sents), "sentences ->", n)
 
 
 if __name__ == "__main__":

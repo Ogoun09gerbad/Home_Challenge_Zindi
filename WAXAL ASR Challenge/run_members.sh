@@ -1,5 +1,5 @@
 #!/bin/bash
-# Évalue chaque membre public retenu (top-6 sur la validation lin+sna) sur un split -> logs/m_{nom}_{split}*.csv
+# Evaluates each selected public member (top-6 on lin+sna validation) on a split -> logs/m_{name}_{split}*.csv
 cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8 HF_HUB_DISABLE_SYMLINKS_WARNING=1
 SPLIT=${1:-validation}

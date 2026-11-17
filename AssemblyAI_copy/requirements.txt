@@ -1,29 +1,28 @@
-# --- Serveur ASGI ---
+# --- ASGI server ---
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 websockets==13.1
 
-# --- Authentification ---
+# --- Authentication ---
 PyJWT==2.9.0
 
-# --- IA : Détection d'activité vocale ---
-# Le package silero-vad embarque les poids du modèle (.jit/.onnx) directement
-# dans le wheel PyPI : après un premier `pip install`, aucune connexion
-# réseau n'est plus nécessaire (compatible air-gapped).
+# --- AI: Voice activity detection ---
+# The silero-vad package bundles the model weights (.jit/.onnx) directly
+# in the PyPI wheel: after the first `pip install`, no network connection
+# is needed anymore (air-gap compatible).
 silero-vad==5.1.2
-# torch n'est pas figé à une version exacte : les wheels précompilées ne
-# suivent les nouvelles versions de Python (ex. 3.13+) qu'avec un léger
-# retard. >=2.9.0 garantit une wheel disponible tout en restant compatible
-# avec l'API utilisée ici (chargement JIT, inférence tensorielle simple).
+# torch is not pinned to an exact version: prebuilt wheels follow new
+# Python releases (e.g. 3.13+) only with a slight delay. >=2.9.0 guarantees
+# an available wheel while remaining compatible with the API used here
+# (JIT loading, simple tensor inference).
 torch>=2.9.0
 
-# --- IA : Reconnaissance vocale streaming ---
+# --- AI: Streaming speech recognition ---
 faster-whisper==1.0.3
-# Dépendance interne de faster_whisper/utils.py (téléchargement des poids
-# du modèle) non résolue automatiquement par les versions récentes de
-# huggingface-hub.
+# Internal dependency of faster_whisper/utils.py (model weight download)
+# not resolved automatically by recent versions of huggingface-hub.
 requests>=2.32.0
 
-# --- Calcul numérique ---
-# Idem : 1.26.4 n'a pas de wheel pour les interpréteurs Python récents.
+# --- Numerical computing ---
+# Same here: 1.26.4 has no wheel for recent Python interpreters.
 numpy>=2.1.0

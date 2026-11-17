@@ -1,18 +1,18 @@
 """
-Point d'entrée de l'infrastructure de transcription vocale streaming.
+Entry point of the streaming speech transcription infrastructure.
 
-Démarrage (développement) :
+Startup (development):
     uvicorn server.main:app --host 0.0.0.0 --port 8000
 
-Démarrage (production, HTTPS/WSS via reverse proxy TLS-terminating type
-nginx/traefik en amont, ou --ssl-keyfile/--ssl-certfile directement) :
+Startup (production, HTTPS/WSS via an upstream TLS-terminating reverse proxy
+such as nginx/traefik, or directly with --ssl-keyfile/--ssl-certfile):
     uvicorn server.main:app --host 0.0.0.0 --port 8000 --workers 1 \
         --ssl-keyfile key.pem --ssl-certfile cert.pem
 
-NOTE IMPORTANTE : --workers doit rester à 1 par GPU disponible. Le modèle
-Whisper est chargé en mémoire par process ; plusieurs workers dupliqueraient
-le modèle en VRAM/RAM. Pour scaler horizontalement, déployez plusieurs
-instances (une par GPU) derrière un load-balancer WebSocket-aware.
+IMPORTANT NOTE: --workers must stay at 1 per available GPU. The Whisper
+model is loaded into memory per process; multiple workers would duplicate
+the model in VRAM/RAM. To scale horizontally, deploy several instances
+(one per GPU) behind a WebSocket-aware load balancer.
 """
 
 from __future__ import annotations
@@ -40,24 +40,24 @@ logger = logging.getLogger("asr_server.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Chargement du modèle Whisper (+ warm-up) une seule fois au démarrage
-    # du process, avant d'accepter la moindre connexion WebSocket, pour que
-    # la toute première session utilisateur bénéficie déjà de la latence
-    # nominale (< 300 ms) sans pic de "cold start".
-    logger.info("Initialisation du moteur ASR...")
+    # Load the Whisper model (+ warm-up) only once at process startup,
+    # before accepting any WebSocket connection, so that the very first
+    # user session already benefits from nominal latency (< 300 ms) with
+    # no "cold start" spike.
+    logger.info("Initializing ASR engine...")
     get_asr_engine()
-    logger.info("Serveur prêt à accepter des connexions.")
+    logger.info("Server ready to accept connections.")
     yield
-    logger.info("Arrêt du serveur.")
+    logger.info("Shutting down server.")
 
 
 app = FastAPI(
-    title="Streaming ASR — Infrastructure souveraine on-premise",
+    title="Streaming ASR — Sovereign on-premise infrastructure",
     lifespan=lifespan,
 )
 
-# CORS : à restreindre explicitement aux origines de vos applications
-# clientes en production (ne jamais garder "*" en environnement sensible).
+# CORS: restrict explicitly to the origins of your client applications in
+# production (never keep "*" in a sensitive environment).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -69,45 +69,45 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check() -> dict:
-    """Endpoint de supervision (liveness/readiness probe)."""
+    """Monitoring endpoint (liveness/readiness probe)."""
     return {"status": "ok"}
 
 
 @app.get("/")
 async def serve_test_client() -> FileResponse:
-    """Sert le client de test HTML/JS (cf. client/index.html) directement
-    depuis le serveur, par simple confort de développement : évite d'avoir
-    à ouvrir le fichier local manuellement et place le client sur la même
-    origine que l'API (pas d'enjeu CORS). À retirer en production, où le
-    client sera plutôt servi par un CDN/reverse proxy dédié."""
+    """Serves the HTML/JS test client (see client/index.html) directly from
+    the server, purely for development convenience: avoids having to open
+    the local file manually and puts the client on the same origin as the
+    API (no CORS concerns). Remove in production, where the client would
+    rather be served by a dedicated CDN/reverse proxy."""
     return FileResponse(CLIENT_HTML_PATH)
 
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket) -> None:
-    """Point d'entrée WebSocket du flux de transcription.
+    """WebSocket entry point for the transcription stream.
 
-    Protocole :
-      1. Le client se connecte à `wss://host/ws/transcribe?token=<JWT>`.
-      2. Le jeton est validé AVANT l'acceptation de la connexion
-         (cf. server/security.py). En cas d'échec, la connexion est fermée
-         avec le code 1008 (policy violation) sans jamais être "acceptée".
-      3. Une fois acceptée, le client envoie des frames BINAIRES contenant
-         du PCM 16 bits linéaire, mono, 16 kHz, par paquets de 50-100 ms.
-      4. Le serveur répond en continu par des frames TEXTE JSON :
+    Protocol:
+      1. The client connects to `wss://host/ws/transcribe?token=<JWT>`.
+      2. The token is validated BEFORE the connection is accepted
+         (see server/security.py). On failure, the connection is closed
+         with code 1008 (policy violation) without ever being "accepted".
+      3. Once accepted, the client sends BINARY frames containing 16-bit
+         linear PCM, mono, 16 kHz, in packets of 50-100 ms.
+      4. The server continuously replies with JSON TEXT frames:
              {"status": "partial", "text": "..."}
              {"status": "final",   "text": "...", "speaker_id": 1}
     """
     try:
         user_claims = await authenticate_websocket(websocket)
     except AuthenticationError:
-        return  # la connexion a déjà été fermée par authenticate_websocket
+        return  # the connection has already been closed by authenticate_websocket
 
     await websocket.accept()
 
     session = TranscriptionSession(websocket, user_claims)
     logger.info(
-        "[%s] Session démarrée pour sub=%s", session.session_id, user_claims.get("sub")
+        "[%s] Session started for sub=%s", session.session_id, user_claims.get("sub")
     )
 
     try:
@@ -115,6 +115,6 @@ async def websocket_transcribe(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     except Exception:
-        logger.exception("[%s] Erreur non gérée durant la session.", session.session_id)
+        logger.exception("[%s] Unhandled error during session.", session.session_id)
     finally:
-        logger.info("[%s] Session terminée.", session.session_id)
+        logger.info("[%s] Session ended.", session.session_id)

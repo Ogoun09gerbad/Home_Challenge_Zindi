@@ -1,16 +1,15 @@
 """
-Moteur ASR streaming basé sur faster-whisper, exposant une méthode
-d'inférence synchrone (bloquante, CPU/GPU-bound) destinée à être appelée
-depuis un ThreadPoolExecutor par le gestionnaire de session asynchrone
-(cf. session_manager.py) — jamais directement depuis la boucle asyncio, sous
-peine de geler tout le serveur pendant l'inférence.
+Streaming ASR engine based on faster-whisper, exposing a synchronous
+inference method (blocking, CPU/GPU-bound) meant to be called from a
+ThreadPoolExecutor by the asynchronous session manager (see
+session_manager.py) — never directly from the asyncio loop, otherwise the
+whole server would freeze during inference.
 
-Le modèle est chargé UNE SEULE FOIS au démarrage du process (poids ~500 Mo à
-1.5 Go selon la taille choisie, mis en cache localement par huggingface_hub
-dès le premier téléchargement, puis réutilisables 100% hors-ligne) et
-partagé par toutes les sessions. L'audio est toujours passé sous forme de
-tableau numpy float32 directement en mémoire : à aucun moment un fichier
-temporaire n'est écrit sur le disque.
+The model is loaded ONLY ONCE at process startup (weights of ~500 MB to
+1.5 GB depending on the chosen size, cached locally by huggingface_hub after
+the first download, then reusable 100% offline) and shared by all sessions.
+Audio is always passed as an in-memory numpy float32 array: no temporary
+file is ever written to disk.
 """
 
 from __future__ import annotations
@@ -37,17 +36,17 @@ logger = logging.getLogger("asr_server.asr")
 @dataclass
 class WordResult:
     text: str
-    start: float  # secondes, relatif au début du buffer audio fourni
+    start: float  # seconds, relative to the start of the provided audio buffer
     end: float
     probability: float
 
 
 class ASREngine:
-    """Enveloppe autour de faster-whisper pour l'inférence streaming."""
+    """Wrapper around faster-whisper for streaming inference."""
 
     def __init__(self) -> None:
         logger.info(
-            "Chargement du modèle Whisper '%s' (device=%s, compute_type=%s)...",
+            "Loading Whisper model '%s' (device=%s, compute_type=%s)...",
             WHISPER_MODEL_SIZE,
             WHISPER_DEVICE,
             WHISPER_COMPUTE_TYPE,
@@ -58,19 +57,19 @@ class ASREngine:
             compute_type=WHISPER_COMPUTE_TYPE,
             cpu_threads=WHISPER_CPU_THREADS,
         )
-        # ctranslate2 (backend de faster-whisper) est thread-safe pour des
-        # appels concurrents à `generate`/`transcribe` sur une même
-        # instance de modèle ; on protège malgré tout par un verrou léger
-        # côté Python pour éviter toute course sur des structures internes
-        # lors de tests futurs sur des versions plus anciennes du backend.
+        # ctranslate2 (the faster-whisper backend) is thread-safe for
+        # concurrent calls to `generate`/`transcribe` on the same model
+        # instance; we nevertheless guard it with a lightweight Python-side
+        # lock to avoid any race on internal structures when testing
+        # against older backend versions in the future.
         self._lock = threading.Lock()
         self._warmup()
-        logger.info("Modèle Whisper prêt.")
+        logger.info("Whisper model ready.")
 
     def _warmup(self) -> None:
-        """Exécute une inférence factice au démarrage pour forcer le
-        chargement des kernels CUDA / la compilation JIT et éviter un pic de
-        latence sur la toute première requête utilisateur réelle."""
+        """Runs a dummy inference at startup to force CUDA kernel loading /
+        JIT compilation and avoid a latency spike on the very first real
+        user request."""
         silence = np.zeros(16_000, dtype=np.float32)
         list(self._model.transcribe(silence, language=WHISPER_LANGUAGE, beam_size=1)[0])
 
@@ -79,15 +78,15 @@ class ASREngine:
         audio_float32: np.ndarray,
         initial_prompt: Optional[str] = None,
     ) -> List[WordResult]:
-        """Transcrit un buffer audio complet (mono, 16 kHz, float32 in
-        [-1, 1]) et retourne la liste des mots avec leurs horodatages
-        relatifs au DÉBUT DE CE BUFFER.
+        """Transcribes a complete audio buffer (mono, 16 kHz, float32 in
+        [-1, 1]) and returns the list of words with timestamps relative to
+        the START OF THIS BUFFER.
 
-        Paramètres choisis pour la latence plutôt que la qualité maximale
-        (beam_size=1, greedy decoding) : adapté au ré-échantillonnage très
-        fréquent imposé par le streaming. `condition_on_previous_text=False`
-        évite les boucles de répétition/hallucination typiques quand on
-        ré-infère un buffer tronqué en continu.
+        Parameters are tuned for latency rather than maximum quality
+        (beam_size=1, greedy decoding): suited to the very frequent
+        re-inference required by streaming. `condition_on_previous_text=False`
+        avoids the repetition/hallucination loops typical of continuously
+        re-inferring a truncated buffer.
         """
         if audio_float32.size == 0:
             return []
@@ -102,7 +101,7 @@ class ASREngine:
                 word_timestamps=True,
                 condition_on_previous_text=False,
                 initial_prompt=initial_prompt,
-                vad_filter=False,  # le VAD est déjà géré en amont par Silero
+                vad_filter=False,  # VAD is already handled upstream by Silero
             )
 
             words: List[WordResult] = []
@@ -125,10 +124,10 @@ class ASREngine:
         return words
 
 
-# Instance unique partagée par tout le process, initialisée au démarrage de
-# l'application (cf. main.py -> lifespan) plutôt qu'à l'import du module,
-# pour garder un contrôle explicite sur le moment du chargement (et pouvoir
-# l'exposer proprement dans les logs de démarrage du serveur).
+# Single instance shared by the whole process, initialized at application
+# startup (see main.py -> lifespan) rather than at module import, to keep
+# explicit control over when loading happens (and to report it cleanly in
+# the server startup logs).
 _engine_singleton: Optional[ASREngine] = None
 _engine_lock = threading.Lock()
 

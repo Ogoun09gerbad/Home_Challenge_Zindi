@@ -1,10 +1,10 @@
-"""Whisper large-v3 + adaptateur LoRA (mrwalker123/whisper-large-v3-waxal-lin-sna) -> hypothèses par clip.
-La langue (ln/sn) est celle prédite par la LID textuelle sur l'ensemble CTC (--lid-from), jamais une métadonnée.
-Les clips > 30 s sont coupés au point d'énergie minimale près du milieu, transcrits puis recollés.
-Usage :
+"""Whisper large-v3 + LoRA adapter (mrwalker123/whisper-large-v3-waxal-lin-sna) -> per-clip hypotheses.
+The language (ln/sn) is the one predicted by the text LID on the CTC ensemble (--lid-from), never metadata.
+Clips > 30 s are cut at the minimum-energy point near the middle, transcribed, then stitched back together.
+Usage:
   python whisper_infer.py --split validation --n 300 --lid-from logs/mbr_F_clean_small_val.csv --tag w_swa
   python whisper_infer.py --split phase2 --lid-from logs/mbr_F_phase2.csv --tag w_swa
-Sortie : logs/{tag}_{split}[_lin-sna].csv (id, language, ref, hyp)."""
+Output: logs/{tag}_{split}[_lin-sna].csv (id, language, ref, hyp)."""
 import argparse, time
 
 import numpy as np
@@ -55,10 +55,10 @@ def main():
     proc = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
     model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3", torch_dtype=torch.float16)
     from huggingface_hub import snapshot_download
-    local = snapshot_download(REPO, allow_patterns=[f"{a.adapter}/adapter_*"])  # peft ne gère pas subfolder ici
+    local = snapshot_download(REPO, allow_patterns=[f"{a.adapter}/adapter_*"])  # peft does not handle subfolder here
     model = PeftModel.from_pretrained(model, f"{local}/{a.adapter}").merge_and_unload().to("cuda").eval()
 
-    # une entrée = un segment ; on regroupe par langue pour fixer le jeton de langue
+    # one entry = one segment; grouped by language to set the language token
     segs = []  # (row, part, audio, lid)
     for r in df.itertuples():
         for p, y in enumerate(split_long(get_audio(r, mms))):

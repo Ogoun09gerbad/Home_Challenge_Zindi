@@ -89,7 +89,7 @@ Further [LOCAL, textstats.py] detail:
 
 **Other sources:**
 - The postprocess README lists first-pass "Initial capitalization and sentence-final punctuation", and reports no ablation numbers — [Pasketti postprocess README](https://github.com/Team-Pasketti/Google-WAXAL-ASR-Challenge-1st-Place/tree/main/postprocess) [VERIFIED]
-- In the Makerere benchmark, the normalisation lowercased text and removed punctuation except apostrophes. Its WER numbers are therefore not comparable to this cased and punctuated metric — [arXiv 2512.10968](https://arxiv.org/html/2512.10968v1) (from the earlier notes in `research_notes/Stratégie ASR WAXAL lin sna lug/waxal_dataset_and_challenge.md`)
+- In the Makerere benchmark, the normalisation lowercased text and removed punctuation except apostrophes. Its WER numbers are therefore not comparable to this cased and punctuated metric — [arXiv 2512.10968](https://arxiv.org/html/2512.10968v1) (from the earlier notes in `research_notes/ASR strategy WAXAL lin sna lug/waxal_dataset_and_challenge.md`)
 
 ### Inferences
 1. **Decision rule for any punctuation mark.** Because WER sees `ndako.` ≠ `ndako`, each predicted mark is a ±1-word bet:
@@ -423,7 +423,7 @@ With about 2 days on 8 GB, pseudo-labelling is a lower-priority bet than post-pr
 
 **Pasketti 1st place:** used a "Whisper SALT noisy-student" member among 8 systems. Training was two-stage for some models (frozen encoder, then full fine-tune) on an A6000 96 GB. No ablation was published — [Pasketti README](https://github.com/Team-Pasketti/Google-WAXAL-ASR-Challenge-1st-Place) (VERIFIED in the earlier notes).
 
-**w2v-BERT 2.0 memory:** 600M params. A full AdamW fine-tune is about 9.6 GB of weights, gradients and optimizer state, so it does not fit in 8 GB without 8-bit Adam, layer freezing or LoRA. This is the researcher's estimate from `research_notes/Stratégie ASR WAXAL lin sna lug/finetuning_and_lm.md` §2.
+**w2v-BERT 2.0 memory:** 600M params. A full AdamW fine-tune is about 9.6 GB of weights, gradients and optimizer state, so it does not fit in 8 GB without 8-bit Adam, layer freezing or LoRA. This is the researcher's estimate from `research_notes/ASR strategy WAXAL lin sna lug/finetuning_and_lm.md` §2.
 
 **LoRA / adapters on w2v-BERT 2.0 CTC:** no source with measured WER was found this session. PEFT LoRA on `Wav2Vec2BertForCTC` linear layers (`linear_q`, `linear_k`, `linear_v`, `linear_out`, `intermediate_dense`, `output_dense`) is technically possible [UNVERIFIED: module names from prior knowledge; check `model.named_modules()`].
 

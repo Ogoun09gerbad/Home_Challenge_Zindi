@@ -1,5 +1,5 @@
-"""Baseline zéro-shot MMS-1B-all (adapter par langue, langue oracle) sur la validation.
-Usage : python baseline_mms.py [--n 300] -> logs/baseline_mms_val.csv + tableau WER/CER/score."""
+"""Zero-shot MMS-1B-all baseline (per-language adapter, oracle language) on the validation split.
+Usage: python baseline_mms.py [--n 300] -> logs/baseline_mms_val.csv + WER/CER/score table."""
 import argparse, time
 
 import pandas as pd
@@ -27,7 +27,7 @@ def transcribe(model, proc, audios, device, bs=8):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=300, help="exemples de validation par langue (0 = tous)")
+    ap.add_argument("--n", type=int, default=300, help="validation examples per language (0 = all)")
     ap.add_argument("--model", default="facebook/mms-1b-all")
     args = ap.parse_args()
     set_seed(42)
@@ -39,20 +39,20 @@ def main():
     for lang in LANGS:
         g = val[val.language == lang]
         if g.empty:
-            print(f"{lang}: pas de validation téléchargée"); continue
+            print(f"{lang}: no validation data downloaded"); continue
         if args.n:
             g = g.sample(min(args.n, len(g)), random_state=42)
         proc.tokenizer.set_target_lang(lang); model.load_adapter(lang)
         t0 = time.time()
         g = g.assign(hyp=transcribe(model, proc, [decode_audio(b) for b in g.audio_bytes], device))
-        print(f"{lang}: {len(g)} clips en {time.time() - t0:.0f}s")
+        print(f"{lang}: {len(g)} clips in {time.time() - t0:.0f}s")
         parts.append(g.drop(columns="audio_bytes"))
     df = pd.concat(parts)
     df.to_csv(ROOT / "logs" / "baseline_mms_val.csv", index=False)
-    print("\n== brut (texte de référence non normalisé, hypothèse brute) ==")
+    print("\n== raw (unnormalised reference text, raw hypothesis) ==")
     print(score_by_lang(df).round(4).to_markdown())
     dn = df.assign(text=df.text.fillna("").map(normalize), hyp=df.hyp.fillna("").map(normalize))
-    print("\n== normalisé (normalize() des deux côtés) ==")
+    print("\n== normalised (normalize() on both sides) ==")
     print(score_by_lang(dn).round(4).to_markdown())
 
 

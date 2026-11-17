@@ -1,85 +1,85 @@
-# Défi de prédiction du stress financier (Zindi, édition de septembre)
+# Financial Stress Prediction Challenge (Zindi, September edition)
 
-Prédire la probabilité qu'un client connaisse des difficultés financières dans les 30
-prochains jours, à partir de 6 mois d'historique de transactions de monnaie mobile.
+Predict the probability that a customer will experience financial difficulty within the next 30
+days, based on 6 months of mobile money transaction history.
 
-- **Métrique** : `score = 0.4 × AUC + 0.6 × (1 − logloss / 0.595)` (formule retrouvée
-  à partir de deux scores publics, voir `experiments.md`)
-- **Sortie attendue** : probabilités brutes (pas de labels, pas de seuillage)
-- **Date limite** : 2026-10-25
-- **Contraintes** : outils open source uniquement, pas d'AutoML, seed fixée, max
-  10 soumissions/jour et 200 au total.
+- **Metric**: `score = 0.4 × AUC + 0.6 × (1 − logloss / 0.595)` (formula recovered
+  from two public scores, see `experiments.md`)
+- **Expected output**: raw probabilities (no labels, no thresholding)
+- **Deadline**: 2026-10-25
+- **Constraints**: open-source tools only, no AutoML, fixed seed, max
+  10 submissions/day and 200 in total.
 
-## Reproduire la soumission
+## Reproducing the submission
 
-Python 3.14, versions figées dans `requirements.txt`.
+Python 3.14, versions pinned in `requirements.txt`.
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-python -X utf8 src\download_data.py   # ou déposer Train.csv / Test.csv à la main dans data\raw\
+python -X utf8 src\download_data.py   # or drop Train.csv / Test.csv manually into data\raw\
 python src\build_dataset.py   # features -> data\processed\{train,test}_features.csv
-python src\predict.py         # modèles + blend -> submissions\submission_<horodatage>.csv
+python src\predict.py         # models + blend -> submissions\submission_<timestamp>.csv
 ```
 
-`predict.py` dure une vingtaine de minutes. Tous les hyperparamètres sont
-figés dans `src/train.py` (`FINAL_LGBM_PARAMS`, `FINAL_GAM_PARAMS`, `FINAL_CATBOOST_PARAMS`) et la seed
-vaut 42 partout : relancer le pipeline redonne la même soumission.
+`predict.py` takes about twenty minutes. All hyperparameters are
+pinned in `src/train.py` (`FINAL_LGBM_PARAMS`, `FINAL_GAM_PARAMS`, `FINAL_CATBOOST_PARAMS`) and the seed
+is 42 everywhere: rerunning the pipeline produces the same submission.
 
-Pour télécharger les données via l'API, copier `.env.example` en `.env` et renseigner
+To download the data through the API, copy `.env.example` to `.env` and fill in
 `ZINDI_USERNAME` / `ZINDI_PASSWORD`.
 
-## Approche
+## Approach
 
-1. **Analyse** : 10 000 clients ayant chacun 7 instantanés (4 en train, 3 en test),
-   sans chevauchement temporel entre instantanés. La cible se lit dans la rupture
-   entre le bloc récent (M1-M3) et le bloc ancien (M4-M6).
-2. **Rétro-ingénierie du générateur** : les données sont synthétiques et stationnaires ;
-   la cible est calculée à partir des features (score + bruit, 15% des lignes de chaque
-   position étiquetées). Les contreparties, montants max et volumes sont du bruit. Le
-   score est une **somme** de quelques facteurs : ratio sorties/entrées récent, baisse
-   des entrées, baisse du solde, apparition de retraits, apparition de paiements
-   (paybill + paiements marchands, qui forment une seule catégorie), volatilité du
-   solde, taux d'activité. Le bruit est **gaussien** : P(stress | x) = Φ(score), les
-   modèles sont donc additifs sur l'échelle probit plutôt que logit.
-3. **Features** (`src/features.py`, 137 au total, calculées sur les montants et le
-   solde uniquement) : niveau, volatilité et momentum par série ; comparaisons bloc
-   récent / bloc ancien ; agrégats des entrées et des sorties ; catégorie paiements ;
-   indicateurs d'arrêt ou d'apparition ; z-scores par segment.
-4. **Validation** : K-fold stratifié. Il n'y a pas de date, la validation
-   adversariale train/test donne une AUC de 0.50, et aucune colonne n'est suspecte
-   de fuite (ni l'ID, ni l'ordre des lignes).
-5. **Modèles** (`src/predict.py`) : trois modèles **additifs** (une fonction par
-   feature, sommées) sur les 15 features les mieux classées — LightGBM probit à arbres
-   d'une division avec contraintes de monotonie, GAM probit à P-splines avec les mêmes
-   contraintes (`src/gam.py`), et CatBoost probit à arbres d'une division — 10 plis × 3 seeds,
-   puis blend sur l'échelle probit avec des poids choisis sur les prédictions OOF.
+1. **Analysis**: 10,000 customers, each with 7 snapshots (4 in train, 3 in test),
+   with no temporal overlap between snapshots. The target shows up as a break
+   between the recent block (M1-M3) and the older block (M4-M6).
+2. **Reverse-engineering the generator**: the data is synthetic and stationary;
+   the target is computed from the features (score + noise, 15% of the rows at each
+   position labelled positive). Counterparties, max amounts and volumes are noise. The
+   score is a **sum** of a few factors: recent outflow/inflow ratio, drop in
+   inflows, drop in balance, appearance of withdrawals, appearance of payments
+   (paybill + merchant payments, which form a single category), balance
+   volatility, activity rate. The noise is **Gaussian**: P(stress | x) = Φ(score), so the
+   models are additive on the probit scale rather than the logit scale.
+3. **Features** (`src/features.py`, 137 in total, computed from amounts and
+   balance only): level, volatility and momentum per series; recent block /
+   older block comparisons; inflow and outflow aggregates; payments category;
+   stop/start indicators; per-segment z-scores.
+4. **Validation**: stratified K-fold. There is no date, adversarial validation
+   train/test gives an AUC of 0.50, and no column is suspected of
+   leakage (neither the ID nor the row order).
+5. **Models** (`src/predict.py`): three **additive** models (one function per
+   feature, summed) on the 15 top-ranked features — probit LightGBM with
+   single-split trees and monotonicity constraints, probit P-spline GAM with the same
+   constraints (`src/gam.py`), and probit CatBoost with single-split trees — 10 folds × 3 seeds,
+   then a blend on the probit scale with weights chosen on the OOF predictions.
 
-Le raisonnement complet, expérience par expérience, est dans `experiments.md`. Le
-notebook `notebooks/02_full_pipeline.ipynb` reproduit le pipeline de façon autonome
+The full reasoning, experiment by experiment, is in `experiments.md`. The
+notebook `notebooks/02_full_pipeline.ipynb` reproduces the pipeline end to end on its own
 (Google Colab).
 
-## Structure du repo
+## Repository structure
 
 ```
 .
 ├── data/
-│   ├── raw/                # fichiers originaux de Zindi, jamais modifiés
-│   └── processed/          # features et prédictions générées par les scripts
+│   ├── raw/                # original Zindi files, never modified
+│   └── processed/          # features and predictions generated by the scripts
 ├── notebooks/
-│   ├── 01_baseline_starter.ipynb  # reproduction du starter Zindi (point de départ)
-│   └── 02_full_pipeline.ipynb     # pipeline complet autonome (Colab)
+│   ├── 01_baseline_starter.ipynb  # reproduction of the Zindi starter (starting point)
+│   └── 02_full_pipeline.ipynb     # full standalone pipeline (Colab)
 ├── src/
-│   ├── download_data.py    # téléchargement des données via l'API Zindi
+│   ├── download_data.py    # data download via the Zindi API
 │   ├── features.py         # feature engineering
-│   ├── build_dataset.py    # construit les jeux de features train / test
-│   ├── validation.py       # stratégie de validation (K-fold stratifié)
-│   ├── train.py            # modèles, hyperparamètres finaux, blend
-│   ├── gam.py              # GAM probit à P-splines (second modèle du blend)
-│   └── predict.py          # pipeline final et fichier de soumission
-├── submissions/            # fichiers de soumission horodatés
-├── experiments.md          # journal des expériences
+│   ├── build_dataset.py    # builds the train / test feature sets
+│   ├── validation.py       # validation strategy (stratified K-fold)
+│   ├── train.py            # models, final hyperparameters, blend
+│   ├── gam.py              # probit P-spline GAM (second model of the blend)
+│   └── predict.py          # final pipeline and submission file
+├── submissions/            # timestamped submission files
+├── experiments.md          # experiment log
 └── requirements.txt
 ```

@@ -1,4 +1,4 @@
-"""EDA courte sur WaxalNLP (lin/sna/lug) -> reports/EDA.md. Usage : python eda.py [--audio-sample N]"""
+"""Short EDA on WaxalNLP (lin/sna/lug) -> reports/EDA.md. Usage: python eda.py [--audio-sample N]"""
 import argparse, collections, sys, unicodedata
 from pathlib import Path
 
@@ -19,7 +19,7 @@ def silence_ratio(y, top_db=35, frame=512):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--audio-sample", type=int, default=300, help="clips décodés par langue/split pour durée/silence/SR")
+    ap.add_argument("--audio-sample", type=int, default=300, help="clips decoded per language/split for duration/silence/SR")
     args = ap.parse_args()
     set_seed(42)
     out = ["# EDA WaxalNLP (lin, sna, lug)\n"]
@@ -28,7 +28,7 @@ def main():
         try:
             df = load_split(split, with_audio=True)
         except ValueError:
-            out.append(f"\n## {split} : aucun fichier\n"); continue
+            out.append(f"\n## {split}: no files\n"); continue
         out.append(f"\n## {split}\n")
         rows = []
         for lang, g in df.groupby("language"):
@@ -56,16 +56,16 @@ def main():
             tr = load_split("train")
             for lang in LANGS:
                 a = set(tr[tr.language == lang].speaker_id); b = set(df[df.language == lang].speaker_id)
-                out.append(f"- {lang}: locuteurs val aussi dans train = {len(a & b)}/{len(b)}\n")
-    out.append("\n## Caractères (train)\n")
+                out.append(f"- {lang}: val speakers also in train = {len(a & b)}/{len(b)}\n")
+    out.append("\n## Characters (train)\n")
     for lang, c in char_counts.items():
         special = {ch: n for ch, n in c.most_common() if not (ch.isascii() and (ch.isalnum() or ch == " "))}
-        out.append(f"\n**{lang}** : {len(c)} caractères distincts. Non ASCII-alphanum : "
+        out.append(f"\n**{lang}**: {len(c)} distinct characters. Non-ASCII-alphanumeric: "
                    + ", ".join(f"`{ch}` U+{ord(ch):04X} {unicodedata.name(ch, '?')} ({n})" for ch, n in list(special.items())[:40]) + "\n")
         normed = collections.Counter(normalize("".join(k * v for k, v in c.items() if k.strip() or k == " ")))
-        out.append(f"  après normalize() : {''.join(sorted(normed))!r}\n")
+        out.append(f"  after normalize(): {''.join(sorted(normed))!r}\n")
     tr = load_split("train")
-    out.append("\n## Exemples de transcriptions (train)\n")
+    out.append("\n## Sample transcriptions (train)\n")
     for lang in LANGS:
         for t in tr[tr.language == lang].text.sample(min(5, (tr.language == lang).sum()), random_state=1):
             out.append(f"- {lang}: {t}\n")

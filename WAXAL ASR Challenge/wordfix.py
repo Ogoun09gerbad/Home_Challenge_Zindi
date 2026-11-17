@@ -1,9 +1,9 @@
-"""Réparation des frontières de mots par fréquences du train (aucun label de test/Phase 2).
-- split : un token w (absent ou rare dans le train) devient "a b" si w = a+b et que le bigramme "a b"
-  est >= ratio fois plus fréquent que w (les deux moitiés étant des mots connus du train).
-- merge : deux tokens "a b" deviennent "ab" si "ab" est >= ratio fois plus fréquent que le bigramme "a b".
-Comparaison en minuscules sans ponctuation ; la casse et la ponctuation finale du token sont conservées.
-Usage : python wordfix.py --pred logs/mbr_E_routed_small_val.csv [--ratio 3 --min-count 5] [--out ...]"""
+"""Word-boundary repair from train frequencies (no test/Phase 2 labels).
+- split: a token w (absent or rare in train) becomes "a b" if w = a+b and the bigram "a b"
+  is >= ratio times more frequent than w (both halves being known train words).
+- merge: two tokens "a b" become "ab" if "ab" is >= ratio times more frequent than the bigram "a b".
+Comparison in lower case without punctuation; the token's case and trailing punctuation are preserved.
+Usage: python wordfix.py --pred logs/mbr_E_routed_small_val.csv [--ratio 3 --min-count 5] [--out ...]"""
 import argparse, re
 from collections import Counter
 
@@ -79,7 +79,7 @@ def main():
     ap.add_argument("--mode", default="both", choices=["split", "merge", "both"])
     a = ap.parse_args()
     df = pd.read_csv(a.pred, keep_default_na=False)
-    if a.ratio is None:  # grille sur la validation
+    if a.ratio is None:  # grid on the validation split
         base = score_by_lang(df, ref_col="ref")
         print(f"base            lin={base.loc['lin','score']:.4f} sna={base.loc['sna','score']:.4f} ALL={base.loc['ALL','score']:.4f}")
         for mode in ["split", "merge", "both"]:
@@ -92,7 +92,7 @@ def main():
         df["hyp_raw"] = df.hyp
         df["hyp"] = apply(df, a.lang_col, ratio=a.ratio, min_count=a.min_count,
                           do_split=a.mode != "merge", do_merge=a.mode != "split")
-        print("clips modifiés :", (df.hyp != df.hyp_raw).sum())
+        print("clips modified:", (df.hyp != df.hyp_raw).sum())
         df.to_csv(a.out, index=False); print("->", a.out)
 
 

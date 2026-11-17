@@ -1,11 +1,11 @@
-"""Construit data/processed/{train,test}_features.csv à partir des données brutes.
+"""Builds data/processed/{train,test}_features.csv from the raw data.
 
-Les features relatives au groupe (z-score par segment) sont calculées comme un
-scaler : les statistiques (moyenne/écart-type par segment) sont ajustées sur le
-train uniquement, puis appliquées telles quelles au test, pour ne jamais faire
-dépendre une feature de train de la distribution du test.
+Group-relative features (z-score per segment) are computed like a
+scaler: the statistics (mean/std per segment) are fitted on the
+train set only, then applied as-is to the test set, so that a train feature never
+depends on the test distribution.
 
-Usage :
+Usage:
     python src/build_dataset.py
 """
 
@@ -40,15 +40,15 @@ def main():
 
     feats_train[TARGET] = train[TARGET].values
 
-    assert feats_train.isna().sum().sum() == 0, "NaN détectés dans les features train"
-    assert feats_test.isna().sum().sum() == 0, "NaN détectés dans les features test"
+    assert feats_train.isna().sum().sum() == 0, "NaN detected in train features"
+    assert feats_test.isna().sum().sum() == 0, "NaN detected in test features"
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     feats_train.to_csv(PROCESSED_DIR / "train_features.csv")
     feats_test.to_csv(PROCESSED_DIR / "test_features.csv")
 
-    print(f"Features train : {feats_train.shape}")
-    print(f"Features test  : {feats_test.shape}")
+    print(f"Train features: {feats_train.shape}")
+    print(f"Test features:  {feats_test.shape}")
 
 
 if __name__ == "__main__":

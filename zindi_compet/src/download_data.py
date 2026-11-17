@@ -1,18 +1,18 @@
-"""Télécharge les fichiers bruts du défi Zindi dans data/raw/.
+"""Downloads the raw files of the Zindi challenge into data/raw/.
 
-Nécessite un fichier .env à la racine du projet avec :
+Requires a .env file at the project root with:
     ZINDI_USERNAME=...
     ZINDI_PASSWORD=...
     ZINDI_CHALLENGE_ID=financial-stress-prediction-challenge-2026-09-01
 
-Usage :
+Usage:
     python src/download_data.py
 
-Note : la fonction download_dataset() du package `zindi` (v. installée) envoie un
-paramètre `data={"auth_token": ...}` en plus du header sur une requête GET, ce qui
-fait échouer le téléchargement avec un 403 côté API Zindi. On réutilise donc l'API
-bas niveau du package (signin, select_a_challenge) mais on télécharge les fichiers
-nous-mêmes avec une requête GET standard.
+Note: the download_dataset() function of the `zindi` package (installed version) sends a
+`data={"auth_token": ...}` parameter in addition to the header on a GET request, which
+makes the download fail with a 403 from the Zindi API. We therefore reuse the
+package's low-level API (signin, select_a_challenge) but download the files
+ourselves with a standard GET request.
 """
 
 import os
@@ -56,8 +56,8 @@ def main():
 
     if not username or not password:
         sys.exit(
-            "ZINDI_USERNAME et ZINDI_PASSWORD doivent être définis dans .env "
-            "(voir .env.example)."
+            "ZINDI_USERNAME and ZINDI_PASSWORD must be set in .env "
+            "(see .env.example)."
         )
 
     user = Zindian(username=username, fixed_password=password)
@@ -71,7 +71,7 @@ def main():
 
     datafiles = challenge_result["challenge"].get("datafiles", [])
     if not datafiles:
-        sys.exit("Aucun fichier de données trouvé pour ce défi.")
+        sys.exit("No data files found for this challenge.")
 
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     downloaded_files = []
@@ -82,7 +82,7 @@ def main():
         download_file(url, destination, auth_token)
         downloaded_files.append(str(destination))
 
-    print(f"\n{len(downloaded_files)} fichier(s) téléchargé(s) dans {RAW_DATA_DIR} :")
+    print(f"\n{len(downloaded_files)} file(s) downloaded to {RAW_DATA_DIR}:")
     for f in downloaded_files:
         print(f" - {f}")
 

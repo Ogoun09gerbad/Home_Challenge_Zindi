@@ -1,20 +1,20 @@
 """
-Implémentation de la politique de "Local Agreement" (LA-2) pour stabiliser
-les hypothèses de transcription streaming d'un modèle Whisper ré-exécuté à
-chaque nouveau chunk audio.
+Implementation of the "Local Agreement" policy (LA-2) used to stabilize the
+streaming transcription hypotheses of a Whisper model that is re-run on
+every new audio chunk.
 
-Principe : à chaque itération, Whisper ré-infère l'intégralité du buffer
-audio non-confirmé et produit une nouvelle hypothèse (liste de mots). On
-compare cette hypothèse à celle produite à l'itération précédente sur le
-MÊME buffer. Le plus long préfixe commun (LCP) entre les deux hypothèses
-est considéré comme stable : ces mots ne changeront plus et sont donc
-"confirmés" (finalisés). Le reste (la "queue") est encore susceptible
-d'être révisé et reste affiché comme "partiel".
+Principle: at each iteration, Whisper re-infers the entire unconfirmed
+audio buffer and produces a new hypothesis (list of words). This hypothesis
+is compared with the one produced at the previous iteration on the SAME
+buffer. The longest common prefix (LCP) between the two hypotheses is
+considered stable: those words will no longer change and are therefore
+"confirmed" (finalized). The rest (the "tail") may still be revised and
+remains displayed as "partial".
 
-Une fois des mots confirmés, l'appelant (cf. asr_engine.py /
-session_manager.py) doit découper l'audio déjà consommé du buffer en
-utilisant l'horodatage de fin du dernier mot confirmé, afin que les
-itérations suivantes ne travaillent que sur l'audio réellement nouveau.
+Once words are confirmed, the caller (see asr_engine.py /
+session_manager.py) must trim the already-consumed audio from the buffer
+using the end timestamp of the last confirmed word, so that subsequent
+iterations only work on genuinely new audio.
 """
 
 from __future__ import annotations
@@ -30,19 +30,19 @@ class LocalAgreementResult:
 
 
 class LocalAgreementBuffer:
-    """Buffer glissant implémentant la politique Local Agreement (n=2)."""
+    """Sliding buffer implementing the Local Agreement policy (n=2)."""
 
     def __init__(self) -> None:
         self._previous_hypothesis: List[str] = []
 
     def reset(self) -> None:
-        """À appeler après un découpage du buffer audio (mots confirmés) ou
-        après un Endpoint (nouvelle phrase)."""
+        """To be called after the audio buffer is trimmed (confirmed words)
+        or after an Endpoint (new utterance)."""
         self._previous_hypothesis = []
 
     def update(self, new_hypothesis: List[str]) -> LocalAgreementResult:
-        """Compare la nouvelle hypothèse à la précédente et retourne le
-        préfixe désormais confirmé ainsi que la queue encore partielle.
+        """Compares the new hypothesis with the previous one and returns the
+        now-confirmed prefix along with the still-partial tail.
         """
         lcp_length = 0
         for prev_word, new_word in zip(self._previous_hypothesis, new_hypothesis):
@@ -50,11 +50,10 @@ class LocalAgreementBuffer:
                 break
             lcp_length += 1
 
-        # On ne confirme jamais la totalité de l'hypothèse en une fois :
-        # le dernier mot est quasi-systématiquement encore susceptible
-        # d'être révisé par le contexte à venir (mot coupé, homophone,
-        # etc.), donc on le laisse toujours dans la partie "partielle" tant
-        # que ce n'est pas un Endpoint explicite.
+        # Never confirm the entire hypothesis at once: the last word is
+        # almost always still subject to revision by upcoming context (cut
+        # word, homophone, etc.), so it is always kept in the "partial"
+        # part until an explicit Endpoint.
         if lcp_length >= len(new_hypothesis):
             lcp_length = max(0, len(new_hypothesis) - 1)
 

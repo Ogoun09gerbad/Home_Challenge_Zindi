@@ -1,7 +1,7 @@
-"""Fine-tuning CTC multilingue (lin+sna+lug, vocabulaire de caractères commun, sans token de langue).
-Modèles : facebook/w2v-bert-2.0, facebook/mms-300m, facebook/wav2vec2-xls-r-300m, facebook/mms-1b-all (--adapter).
-Prérequis : python cache_audio.py --split train validation
-Exemple :
+"""Multilingual CTC fine-tuning (lin+sna+lug, shared character vocabulary, no language token).
+Models: facebook/w2v-bert-2.0, facebook/mms-300m, facebook/wav2vec2-xls-r-300m, facebook/mms-1b-all (--adapter).
+Prerequisite: python cache_audio.py --split train validation
+Example:
   python train.py --model facebook/w2v-bert-2.0 --out models/w2vbert --epochs 10 --lr 5e-5 --bs 8 --accum 4
 """
 import argparse, json, math, random
@@ -16,7 +16,7 @@ from cache_audio import get_audio, load_cached, open_mmaps
 from common import LANGS, ROOT, SR, clean_raw, normalize, score, set_seed
 
 
-# ---- vocabulaire --------------------------------------------------------------
+# ---- vocabulary ----------------------------------------------------------------
 def build_vocab(texts, path):
     chars = sorted(set("".join(texts)) - {" "})
     vocab = {"[PAD]": 0, "[UNK]": 1, "|": 2, **{c: i + 3 for i, c in enumerate(chars)}}
@@ -24,9 +24,9 @@ def build_vocab(texts, path):
     return vocab
 
 
-# ---- données ----------------------------------------------------------------
+# ---- data -------------------------------------------------------------------
 class CachedASR(Dataset):
-    """Les memmaps sont ouverts paresseusement dans chaque worker (un memmap picklé serait copié en entier)."""
+    """Memmaps are opened lazily in each worker (a pickled memmap would be copied in full)."""
     def __init__(self, df, split, augment=False):
         self.df, self.split, self.augment, self.mms = df.reset_index(drop=True), split, augment, None
 
@@ -47,7 +47,7 @@ class CachedASR(Dataset):
 
 
 def augment(y):
-    """Perturbation de vitesse (0.9/1.0/1.1), gain aléatoire, bruit blanc léger."""
+    """Speed perturbation (0.9/1.0/1.1), random gain, light white noise."""
     if random.random() < 0.4 and len(y) > 2048:
         import librosa
         sp = random.choice([0.9, 1.1])
@@ -62,7 +62,7 @@ def augment(y):
 
 
 class LengthBucketSampler(Sampler):
-    """Mélange par paquets de longueurs voisines (moins de padding), déterministe via le seed."""
+    """Shuffles in buckets of similar lengths (less padding), deterministic via the seed."""
     def __init__(self, lengths, bs, seed=42):
         self.lengths, self.bs, self.seed, self.epoch = np.asarray(lengths), bs, seed, 0
 
@@ -102,7 +102,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="facebook/w2v-bert-2.0")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--adapter", action="store_true", help="MMS-1B : n'entraîne qu'un adapter commun + tête CTC")
+    ap.add_argument("--adapter", action="store_true", help="MMS-1B: train only a shared adapter + CTC head")
     ap.add_argument("--epochs", type=float, default=10)
     ap.add_argument("--max-steps", type=int, default=-1)
     ap.add_argument("--lr", type=float, default=5e-5)
@@ -111,20 +111,20 @@ def main():
     ap.add_argument("--max-sec", type=float, default=20.0)
     ap.add_argument("--min-sec", type=float, default=0.5)
     ap.add_argument("--text", choices=["raw", "norm"], default="raw",
-                    help="raw = casse+ponctuation conservées (recommandé, le scorer les compte) ; norm = minuscules sans ponctuation")
-    ap.add_argument("--init-vocab", default=None, help="réutiliser le vocab.json d'un checkpoint (continuation de fine-tuning)")
+                    help="raw = case+punctuation kept (recommended, the scorer counts them); norm = lower-case without punctuation")
+    ap.add_argument("--init-vocab", default=None, help="reuse a checkpoint's vocab.json (continued fine-tuning)")
     ap.add_argument("--augment", action="store_true")
     ap.add_argument("--mask-time-prob", type=float, default=0.05)
     ap.add_argument("--layerdrop", type=float, default=0.0)
-    ap.add_argument("--eval-n", type=int, default=200, help="clips de validation par langue pour l'éval en cours d'entraînement")
+    ap.add_argument("--eval-n", type=int, default=200, help="validation clips per language for in-training evaluation")
     ap.add_argument("--eval-steps", type=int, default=1000)
-    ap.add_argument("--train-frac", type=float, default=1.0, help="sous-échantillon du train (essais rapides)")
+    ap.add_argument("--train-frac", type=float, default=1.0, help="train subsample fraction (quick trials)")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--resume", action="store_true")
-    ap.add_argument("--langs", nargs="+", default=LANGS, help="langues d'entraînement/éval (ex. lin sna)")
-    ap.add_argument("--lora", type=int, default=0, help="rang LoRA (0 = fine-tuning complet) ; base figée, tête CTC + adapter entraînés")
-    ap.add_argument("--max-minutes", type=float, default=0, help="arrêt de sécurité après N minutes (0 = illimité)")
+    ap.add_argument("--langs", nargs="+", default=LANGS, help="training/eval languages (e.g. lin sna)")
+    ap.add_argument("--lora", type=int, default=0, help="LoRA rank (0 = full fine-tuning); frozen base, CTC head + adapter trained")
+    ap.add_argument("--max-minutes", type=float, default=0, help="safety stop after N minutes (0 = unlimited)")
     a = ap.parse_args()
     set_seed(a.seed)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
@@ -138,7 +138,7 @@ def main():
     for d in (tr, va):
         d["norm"] = d.text.fillna("").map(fn)
     keep = (tr.length >= a.min_sec * SR) & (tr.length <= a.max_sec * SR) & (tr.norm.str.len() > 0)
-    print(f"train : {keep.sum()}/{len(tr)} clips gardés ({tr[keep].length.sum() / SR / 3600:.1f} h)")
+    print(f"train: {keep.sum()}/{len(tr)} clips kept ({tr[keep].length.sum() / SR / 3600:.1f} h)")
     tr = tr[keep]
     if a.train_frac < 1:
         tr = tr.sample(frac=a.train_frac, random_state=a.seed)
@@ -146,7 +146,7 @@ def main():
                          for _, g in va[va.norm.str.len() > 0].groupby("language")])
     print(tr.groupby("language").size().to_dict(), "| eval", va_eval.groupby("language").size().to_dict())
 
-    if a.init_vocab:  # continuation : processeur ET taille de tête du checkpoint repris tels quels (tokens ajoutés inclus)
+    if a.init_vocab:  # continuation: processor AND head size taken from the checkpoint as-is (added tokens included)
         from transformers import AutoProcessor
         proc = AutoProcessor.from_pretrained(a.model)
         tok, fe = proc.tokenizer, proc.feature_extractor
@@ -195,7 +195,7 @@ def main():
         model = get_peft_model(model, cfg)
         model.print_trainable_parameters()
     ntrain = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"paramètres entraînables : {ntrain / 1e6:.1f} M")
+    print(f"trainable parameters: {ntrain / 1e6:.1f} M")
 
     def compute_metrics(pred):
         ids = np.argmax(pred.predictions, axis=-1)
@@ -213,7 +213,7 @@ def main():
     args = TrainingArguments(
         output_dir=str(out), seed=a.seed, data_seed=a.seed,
         per_device_train_batch_size=a.bs, per_device_eval_batch_size=a.bs, gradient_accumulation_steps=a.accum,
-        num_train_epochs=a.epochs, max_steps=a.max_steps, learning_rate=a.lr, warmup_steps=0.1,  # transformers v5 : float = fraction
+        num_train_epochs=a.epochs, max_steps=a.max_steps, learning_rate=a.lr, warmup_steps=0.1,  # transformers v5: float = fraction
         lr_scheduler_type="linear", weight_decay=0.0,
         bf16=torch.cuda.is_bf16_supported(), fp16=not torch.cuda.is_bf16_supported(),
         gradient_checkpointing=not a.adapter, gradient_checkpointing_kwargs={"use_reentrant": False}, eval_strategy="no" if a.lora else "steps", eval_steps=a.eval_steps,
@@ -247,10 +247,10 @@ def main():
     if a.lora:
         merged = trainer.model.merge_and_unload()
         merged.save_pretrained(out / "merged"); proc.save_pretrained(out / "merged")
-        print("modèle fusionné ->", out / "merged")
+        print("merged model ->", out / "merged")
     else:
         trainer.save_model(out / "best"); proc.save_pretrained(out / "best")
-    if not a.lora:  # LoRA : évaluation hors Trainer (eval_model.py sur le modèle fusionné)
+    if not a.lora:  # LoRA: evaluation outside the Trainer (eval_model.py on the merged model)
         json.dump(trainer.evaluate(), open(out / "best_eval.json", "w"), indent=1)
 
 

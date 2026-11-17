@@ -1,9 +1,9 @@
-"""Modèles, hyperparamètres finaux et outils de blend du pipeline (voir predict.py).
+"""Models, final hyperparameters and blending tools for the pipeline (see predict.py).
 
-Métrique du défi, retrouvée à partir de deux scores publics (experiments.md,
-2026-10-10) :
+Challenge metric, recovered from two public scores (experiments.md,
+2026-10-10):
     score = 0.4 * AUC + 0.6 * (1 - logloss / 0.595)
-Un millième de logloss vaut donc ~1 millième de score, contre 0.4 pour l'AUC.
+One thousandth of logloss is therefore worth ~1 thousandth of score, vs 0.4 for AUC.
 """
 
 import itertools
@@ -35,11 +35,11 @@ def zindi_score(logloss: float, auc: float) -> float:
     return AUC_WEIGHT * auc + LOGLOSS_WEIGHT * (1 - logloss / ZINDI_LOGLOSS_REF)
 
 
-# Hyperparamètres figés dans le code (pas lus depuis data/processed/, exclu de git) pour
-# que le pipeline se reproduise à l'identique depuis un clone du dépôt. Avec les features
-# v3, le score caché est additif : des arbres à une seule division (une fonction par
-# feature, sommées) font mieux que des arbres plus profonds (experiments.md, 2026-10-10 :
-# LightGBM profondeur 1/2/3 = 0.23101/0.23155/0.23237, CatBoost 1/2/4 = 0.23059/0.23099/0.23096).
+# Hyperparameters pinned in the code (not read from data/processed/, excluded from git) so
+# that the pipeline reproduces identically from a clone of the repository. With the v3
+# features, the hidden score is additive: single-split trees (one function per
+# feature, summed) do better than deeper trees (experiments.md, 2026-10-10:
+# LightGBM depth 1/2/3 = 0.23101/0.23155/0.23237, CatBoost 1/2/4 = 0.23059/0.23099/0.23096).
 FINAL_LGBM_PARAMS = {
     "objective": "binary",
     "n_estimators": 20000,
@@ -70,17 +70,17 @@ FINAL_CATBOOST_PARAMS = {
 }
 FINAL_CATBOOST_EARLY_STOPPING = 500
 
-# 15 features suffisent, sélectionnées sans biais dans chaque pli (rank_features) :
-# au-delà on ajoute de la variance sans signal (0.22983 à 15 features contre 0.23045
-# à 137, experiments.md 2026-10-10).
+# 15 features are enough, selected without bias within each fold (rank_features):
+# beyond that we add variance without signal (0.22983 with 15 features vs 0.23045
+# with 137, experiments.md 2026-10-10).
 FINAL_N_FEATURES = 15
 
-# Sens de variation imposés à LightGBM (1 : le risque augmente avec la feature, -1 : il
-# diminue). Lus sur les fonctions de forme du modèle sans contrainte (corrélation de
-# rang > 0.8) et conformes à la logique financière : dépenser plus que ses entrées, voir
-# ses entrées ou son solde baisser, de nouveaux paiements, un solde volatil ou une
-# faible activité font tous monter le risque. Contraintes utiles à LightGBM (0.22950
-# contre 0.22978 sans) mais dégradent CatBoost (0.23217 contre 0.22976), qui reste libre.
+# Monotonic directions imposed on LightGBM (1: risk increases with the feature, -1: it
+# decreases). Read from the shape functions of the unconstrained model (rank
+# correlation > 0.8) and consistent with financial logic: spending more than one's inflows,
+# seeing inflows or balance drop, new payments, a volatile balance or
+# low activity all raise the risk. Constraints help LightGBM (0.22950
+# vs 0.22978 without) but hurt CatBoost (0.23217 vs 0.22976), which stays unconstrained.
 MONOTONE_DIRECTIONS = {
     "outflow_over_inflow_rec": 1,
     "withdraw_over_inflow_rec": 1,
@@ -92,12 +92,12 @@ MONOTONE_DIRECTIONS = {
     "net_rec_over_inflow_old": -1,
     "x_90_d_activity_rate": -1,
 }
-# Discrétisation plus fine que le défaut (255) : les ratios sont très asymétriques.
+# Finer binning than the default (255): the ratios are highly skewed.
 FINAL_LGBM_MAX_BIN = 1023
 
 
 def final_lgbm_params(columns):
-    """FINAL_LGBM_PARAMS + discrétisation fine + monotonie alignée sur `columns`."""
+    """FINAL_LGBM_PARAMS + fine binning + monotonicity aligned with `columns`."""
     return {
         **FINAL_LGBM_PARAMS,
         "max_bin": FINAL_LGBM_MAX_BIN,
@@ -105,32 +105,32 @@ def final_lgbm_params(columns):
     }
 
 
-# GAM probit à P-splines (gam.py), second modèle du blend : 20 nœuds, λ=5 (grille
-# testée en 5-fold, experiments.md 2026-10-10 : λ=10 -> 0.23050, λ=20 -> 0.23073,
-# 15 nœuds -> 0.23068 ; retenu : 0.23043).
+# Probit P-spline GAM (gam.py), second model of the blend: 20 knots, λ=5 (grid
+# tested in 5-fold, experiments.md 2026-10-10: λ=10 -> 0.23050, λ=20 -> 0.23073,
+# 15 knots -> 0.23068; chosen: 0.23043).
 FINAL_GAM_PARAMS = {"n_knots": 20, "lam": 5.0}
 
 
 def final_gam_params(columns):
-    """FINAL_GAM_PARAMS + monotonie (MONOTONE_DIRECTIONS) alignée sur `columns`."""
+    """FINAL_GAM_PARAMS + monotonicity (MONOTONE_DIRECTIONS) aligned with `columns`."""
     return {**FINAL_GAM_PARAMS, "monotone": [MONOTONE_DIRECTIONS.get(c, 0) for c in columns]}
 
 
-# Lien probit (experiments.md, 2026-10-10) : la cible vaut 1 pour les 15% de lignes dont
-# « score caché + bruit » est le plus élevé, et ce bruit est gaussien. Donc
-# P(y=1|x) = Φ(s(x) - seuil) : le bon objectif est la vraisemblance probit, pas logit
-# (qui surestime les faibles risques de 3 σ et perd 0.0007 de logloss).
+# Probit link (experiments.md, 2026-10-10): the target is 1 for the 15% of rows whose
+# "hidden score + noise" is highest, and this noise is Gaussian. Hence
+# P(y=1|x) = Φ(s(x) - threshold): the right objective is the probit likelihood, not logit
+# (which overestimates low risks by 3 σ and loses 0.0007 of logloss).
 def probit_grad_hess(eta, y):
-    """Gradient et hessienne de la logloss probit −[y·logΦ(η) + (1−y)·log(1−Φ(η))].
+    """Gradient and Hessian of the probit logloss −[y·logΦ(η) + (1−y)·log(1−Φ(η))].
 
-    En log (log_ndtr) pour rester stable quand Φ(η) est proche de 0 ou de 1. La NLL est
-    linéaire en y, donc cette formule reste valide pour y continu dans [0,1] (étiquette
-    douce de pseudo-labeling), pas seulement y binaire : elle en est l'interpolation
-    linéaire exacte (identique au cas dur quand y∈{0,1}).
+    Computed in log space (log_ndtr) to stay stable when Φ(η) is close to 0 or 1. The NLL is
+    linear in y, so this formula remains valid for continuous y in [0,1] (pseudo-labeling
+    soft label), not just binary y: it is its exact linear
+    interpolation (identical to the hard case when y∈{0,1}).
     """
     log_cdf, log_sf = special.log_ndtr(eta), special.log_ndtr(-eta)
     log_pdf = -0.5 * eta**2 - 0.5 * np.log(2 * np.pi)
-    r1, r0 = np.exp(log_pdf - log_cdf), np.exp(log_pdf - log_sf)  # φ/Φ et φ/(1−Φ)
+    r1, r0 = np.exp(log_pdf - log_cdf), np.exp(log_pdf - log_sf)  # φ/Φ and φ/(1−Φ)
     grad = -y * r1 + (1 - y) * r0
     hess = y * (r1 * (r1 + eta)) + (1 - y) * (r0 * (r0 - eta))
     return grad, hess
@@ -142,10 +142,10 @@ def probit_logloss(y, eta):
 
 
 def _lgb_probit_objective(preds, data):
-    # preds inclut déjà l'init_score du Dataset : pas à rajouter.
+    # preds already includes the Dataset's init_score: no need to add it.
     grad, hess = probit_grad_hess(preds, data.get_label())
-    # LightGBM renvoie weight=None quand tous les poids valent 1 (optimisation interne) :
-    # il faut alors le traiter comme 1.0, sinon TypeError (pseudo-labeling, train.py 2026-10-15).
+    # LightGBM returns weight=None when all weights are 1 (internal optimisation):
+    # it must then be treated as 1.0, otherwise TypeError (pseudo-labeling, train.py 2026-10-15).
     weight = data.get_weight()
     if weight is None:
         weight = 1.0
@@ -157,11 +157,11 @@ def _lgb_probit_metric(preds, data):
 
 
 class ProbitLGBMClassifier:
-    """LightGBM entraîné avec la vraisemblance probit : P(y=1|x) = Φ(η(x)).
+    """LightGBM trained with the probit likelihood: P(y=1|x) = Φ(η(x)).
 
-    Même interface que LGBMClassifier (fit avec jeu de validation pour l'arrêt
-    précoce, predict_proba) pour s'intégrer dans run_cv. Le score part de
-    Φ⁻¹(taux de positifs), l'équivalent probit de boost_from_average.
+    Same interface as LGBMClassifier (fit with a validation set for early
+    stopping, predict_proba) to plug into run_cv. The score starts from
+    Φ⁻¹(positive rate), the probit equivalent of boost_from_average.
     """
 
     def __init__(self, **params):
@@ -187,7 +187,7 @@ class ProbitLGBMClassifier:
         return self
 
     def decision_function(self, X):
-        """Score η sur l'échelle probit."""
+        """Score η on the probit scale."""
         return self.booster_.predict(X, num_iteration=self.booster_.best_iteration) + self.init_score_
 
     def predict_proba(self, X):
@@ -196,8 +196,8 @@ class ProbitLGBMClassifier:
 
 
 class _CatBoostProbitObjective:
-    """Dérivées de la logloss probit pour CatBoost (convention der1/der2 = gradient et
-    hessienne changés de signe, comme pour l'exemple Logloss natif de la doc CatBoost)."""
+    """Derivatives of the probit logloss for CatBoost (der1/der2 convention = gradient and
+    Hessian with flipped sign, as in the native Logloss example of the CatBoost docs)."""
 
     def calc_ders_range(self, approxes, targets, weights):
         grad, hess = probit_grad_hess(np.asarray(approxes, dtype=float), np.asarray(targets, dtype=float))
@@ -218,10 +218,10 @@ class _CatBoostProbitMetric:
 
 
 class ProbitCatBoostClassifier:
-    """CatBoost entraîné avec la vraisemblance probit (même raison que ProbitLGBMClassifier).
+    """CatBoost trained with the probit likelihood (same reason as ProbitLGBMClassifier).
 
-    Même interface native que CatBoostClassifier (fit avec eval_set, cat_features,
-    early_stopping_rounds) pour s'intégrer dans run_cv_catboost sans rien y changer.
+    Same native interface as CatBoostClassifier (fit with eval_set, cat_features,
+    early_stopping_rounds) to plug into run_cv_catboost without changing anything there.
     """
 
     def __init__(self, **params):
@@ -242,7 +242,7 @@ class ProbitCatBoostClassifier:
         return self
 
     def decision_function(self, X):
-        """Score η sur l'échelle probit."""
+        """Score η on the probit scale."""
         return self.booster_.predict(X, prediction_type="RawFormulaVal") + self.init_score_
 
     def predict_proba(self, X):
@@ -251,8 +251,8 @@ class ProbitCatBoostClassifier:
 
 
 def load_train_features():
-    # round_trip : relit les flottants exactement (le lecteur rapide par défaut arrondit
-    # à 13 chiffres significatifs, assez pour déplacer une valeur d'un côté d'un seuil).
+    # round_trip: reads floats back exactly (the default fast reader rounds
+    # to 13 significant digits, enough to move a value to the other side of a threshold).
     df = pd.read_csv(PROCESSED_DIR / "train_features.csv", index_col=0, float_precision="round_trip")
     y = df.pop(TARGET)
     cat_cols = df.select_dtypes(include=["object", "str"]).columns.tolist()
@@ -262,10 +262,10 @@ def load_train_features():
 
 
 def _augment_with_pseudo(X_tr, y_tr, pseudo):
-    """Ajoute les lignes pseudo-labellisées (X_p, y_p, poids) à l'entraînement d'un pli ;
-    `None` si pas de pseudo-labeling. Jamais ajoutées à la validation (OOF honnête sur
-    les seules vraies lignes train). `y_p` peut être une étiquette douce (probabilité
-    continue), `probit_grad_hess` généralisé le gère nativement."""
+    """Adds the pseudo-labelled rows (X_p, y_p, weight) to a fold's training set;
+    `None` if no pseudo-labeling. Never added to validation (honest OOF on
+    the real train rows only). `y_p` can be a soft label (continuous
+    probability); the generalised `probit_grad_hess` handles it natively."""
     weight_tr = np.ones(len(y_tr))
     if pseudo is None:
         return X_tr, y_tr, weight_tr
@@ -277,8 +277,8 @@ def _augment_with_pseudo(X_tr, y_tr, pseudo):
 
 
 def _cv_loop(X, y, n_splits, seed, fit_fold, verbose):
-    """Boucle de validation croisée commune à run_cv / run_cv_catboost / run_cv_gam :
-    `fit_fold(X_tr, y_tr, X_va, y_va)` entraîne un modèle et renvoie (modèle, proba)."""
+    """Cross-validation loop shared by run_cv / run_cv_catboost / run_cv_gam:
+    `fit_fold(X_tr, y_tr, X_va, y_va)` trains a model and returns (model, proba)."""
     oof_pred = np.zeros(len(y))
     models = []
     for fold, (tr_idx, va_idx) in enumerate(get_folds(y, n_splits=n_splits, seed=seed)):
@@ -292,15 +292,15 @@ def _cv_loop(X, y, n_splits, seed, fit_fold, verbose):
 
     metrics = {"logloss": log_loss(y, oof_pred), "auc": roc_auc_score(y, oof_pred)}
     if verbose:
-        print(f"\nOOF global : logloss={metrics['logloss']:.5f}  auc={metrics['auc']:.5f}")
+        print(f"\nOverall OOF: logloss={metrics['logloss']:.5f}  auc={metrics['auc']:.5f}")
     return models, oof_pred, metrics
 
 
 def run_cv(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, verbose=True, esr=50,
            model_cls=lgb.LGBMClassifier, pseudo=None):
-    """Validation croisée LightGBM ; `model_cls=ProbitLGBMClassifier` pour le lien probit.
-    `pseudo=(X_p, y_p, poids)` : lignes de test pseudo-labellisées ajoutées à chaque pli
-    d'entraînement (jamais à la validation)."""
+    """LightGBM cross-validation; `model_cls=ProbitLGBMClassifier` for the probit link.
+    `pseudo=(X_p, y_p, weight)`: pseudo-labelled test rows added to each training
+    fold (never to validation)."""
     params = params or FINAL_LGBM_PARAMS
 
     def fit_fold(X_tr, y_tr, X_va, y_va):
@@ -314,10 +314,10 @@ def run_cv(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, verbose=Tr
 
 
 def rank_features(X, y, cat_cols, n_splits=N_SPLITS, seed=SEED):
-    """Classe les features par gain cumulé du LightGBM final (additif) sur les plis.
+    """Ranks features by cumulative gain of the final (additive) LightGBM across folds.
 
-    Déterministe (seed et plis fixés) : redonne le même classement à chaque exécution,
-    sans dépendre d'un fichier généré hors du dépôt.
+    Deterministic (fixed seed and folds): returns the same ranking on every run,
+    without depending on a file generated outside the repository.
     """
     gain = np.zeros(X.shape[1])
     for tr_idx, va_idx in get_folds(y, n_splits=n_splits, seed=seed):
@@ -332,15 +332,15 @@ def rank_features(X, y, cat_cols, n_splits=N_SPLITS, seed=SEED):
 
 
 def select_features(X, y, cat_cols, k):
-    """Les k features au plus fort gain (rank_features)."""
+    """The k features with the highest gain (rank_features)."""
     return list(rank_features(X, y, cat_cols).index[:k])
 
 
 def run_cv_catboost(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, verbose=True, esr=50,
                      model_cls=cb.CatBoostClassifier, pseudo=None):
-    """Même logique que run_cv, avec CatBoost (`model_cls=ProbitCatBoostClassifier` pour
-    le lien probit) : son target encoding ordonné des catégorielles diversifie le blend
-    par rapport aux splits de LightGBM. `pseudo` : voir run_cv."""
+    """Same logic as run_cv, with CatBoost (`model_cls=ProbitCatBoostClassifier` for
+    the probit link): its ordered target encoding of categoricals diversifies the blend
+    relative to LightGBM's splits. `pseudo`: see run_cv."""
     params = params or FINAL_CATBOOST_PARAMS
     cat_idx = [X.columns.get_loc(c) for c in cat_cols]
 
@@ -356,9 +356,9 @@ def run_cv_catboost(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, v
 
 def run_cv_gam(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, verbose=True, esr=None,
                pseudo=None):
-    """Même logique que run_cv, avec le GAM probit (gam.py). Pas d'arrêt précoce : la
-    pénalité λ règle déjà la régularisation ; cat_cols et esr sont ignorés (features
-    numériques uniquement). `pseudo` : voir run_cv."""
+    """Same logic as run_cv, with the probit GAM (gam.py). No early stopping: the
+    penalty λ already controls regularisation; cat_cols and esr are ignored (numeric
+    features only). `pseudo`: see run_cv."""
     params = params or final_gam_params(X.columns)
 
     def fit_fold(X_tr, y_tr, X_va, y_va):
@@ -370,18 +370,18 @@ def run_cv_gam(X, y, cat_cols, params=None, n_splits=N_SPLITS, seed=SEED, verbos
 
 
 def probit_blend(preds, weights):
-    """Moyenne pondérée des scores probit Φ⁻¹(p) des modèles, ramenée en probabilité.
+    """Weighted mean of the models' probit scores Φ⁻¹(p), mapped back to a probability.
 
-    Moyenner les scores plutôt que les probabilités garde la structure additive du
-    modèle (sur les OOF, les deux moyennes ne diffèrent que de 0.00001 en score).
+    Averaging scores rather than probabilities preserves the additive structure of the
+    model (on the OOF, the two averages differ by only 0.00001 in score).
     """
     eta = sum(w * special.ndtri(np.clip(preds[name], 1e-15, 1 - 1e-15)) for name, w in weights.items())
     return special.ndtr(eta)
 
 
 def best_probit_blend_weights(y, oof_dict, step: float = 0.05):
-    """Poids (positifs, de somme 1, grille de pas `step`) qui maximisent le score Zindi
-    du blend probit des prédictions OOF. Trois modèles : 231 combinaisons testées."""
+    """Weights (non-negative, summing to 1, grid with step `step`) that maximise the Zindi
+    score of the probit blend of the OOF predictions. Three models: 231 combinations tested."""
     names = list(oof_dict)
     grid = np.round(np.arange(0.0, 1.0 + 1e-9, step), 10)
     best_score, best_weights, best_metrics = -np.inf, None, None
