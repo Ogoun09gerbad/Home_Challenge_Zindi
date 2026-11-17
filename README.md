@@ -14,6 +14,7 @@ Each folder is a self-contained project with its own code, notes and (when avail
 |---|---|---|---|---|
 | [WAXAL ASR Challenge](./WAXAL%20ASR%20Challenge) | [October Study Jam: Google WAXAL ASR Challenge](https://zindi.world/competitions/google-waxal-asr-challenge-october-study-jam) (Oct 2026) | Speech recognition (Lingala, Shona) | Ensemble of w2v-BERT 2.0 CTC models, text-based language routing, Minimum-Bayes-Risk selection, rule-based post-processing | Private score 0.7711, **rank 6** |
 | [zindi_compet](./zindi_compet) | [Beginner Track: Financial Stress Prediction Challenge (September Edition)](https://zindi.world/competitions/financial-stress-prediction-challenge-2026-09-01) (Sep–Oct 2026) | Tabular ML: financial stress prediction from mobile money transactions | Feature engineering, LightGBM + CatBoost + GAM blend | **Rank 14 / 214** |
+| [ClimX Kaggle Challenge](./ClimX%20Kaggle%20Challenge) | [Kaggle: ClimX, Extreme-aware climate model emulation](https://www.kaggle.com/competitions/climx-main-track) (Sep–Dec 2026) | Climate model emulation: 15 climate-extreme indices under SSP2-4.5 | Forced-analogue emulator: energy-balance forced state, per-cell forced-mean regression, shifted analogue years, indices averaged over 48 realisations | In progress (public LB -0.44571, lite) |
 | [AssemblyAI_copy](./AssemblyAI_copy) | — | Real-time streaming speech-to-text | Whisper + VAD + local-agreement streaming over FastAPI WebSockets | — |
 
 ## Notes

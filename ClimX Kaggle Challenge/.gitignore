@@ -1,0 +1,8 @@
+# Official ClimX repository, cloned separately (see README)
+repo_ClimX/
+
+# Generated daily fields, index files and submissions (large, reproducible)
+*.nc
+*.parquet
+
+.vscode/

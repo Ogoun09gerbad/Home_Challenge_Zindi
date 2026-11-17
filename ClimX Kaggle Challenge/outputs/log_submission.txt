@@ -1,0 +1,67 @@
+Forced GMST SSP2-4.5: 287.44 K (2015) -> 288.91 K (2100)
+realisation 1/48 (35s)
+realisation 2/48 (51s)
+realisation 3/48 (69s)
+realisation 4/48 (86s)
+realisation 5/48 (101s)
+realisation 6/48 (118s)
+realisation 7/48 (136s)
+realisation 8/48 (154s)
+realisation 9/48 (176s)
+realisation 10/48 (196s)
+realisation 11/48 (212s)
+realisation 12/48 (227s)
+realisation 13/48 (240s)
+realisation 14/48 (255s)
+realisation 15/48 (272s)
+realisation 16/48 (288s)
+realisation 17/48 (303s)
+realisation 18/48 (319s)
+realisation 19/48 (334s)
+realisation 20/48 (351s)
+realisation 21/48 (367s)
+realisation 22/48 (382s)
+realisation 23/48 (404s)
+realisation 24/48 (425s)
+realisation 25/48 (447s)
+realisation 26/48 (454s)
+realisation 27/48 (461s)
+realisation 28/48 (468s)
+realisation 29/48 (475s)
+realisation 30/48 (495s)
+realisation 31/48 (515s)
+realisation 32/48 (535s)
+realisation 33/48 (557s)
+realisation 34/48 (579s)
+realisation 35/48 (599s)
+realisation 36/48 (623s)
+realisation 37/48 (649s)
+realisation 38/48 (673s)
+realisation 39/48 (700s)
+realisation 40/48 (724s)
+realisation 41/48 (739s)
+realisation 42/48 (760s)
+realisation 43/48 (781s)
+realisation 44/48 (803s)
+realisation 45/48 (825s)
+realisation 46/48 (848s)
+realisation 47/48 (870s)
+realisation 48/48 (893s)
+Format checks passed; official scorer accepts the file (self-score 1.000000).
+           min    mean     max
+TXx     248.85  290.68  316.51
+TNn     205.28  266.01  301.16
+SU        0.00   97.09  365.00
+TR        0.00  112.44  365.00
+FD        0.00  122.79  365.00
+ID        0.00  107.29  365.00
+WSDI      0.62  122.74  364.85
+CSDI      0.00    1.21   23.69
+GSL       0.00  220.82  365.00
+Rx5day    2.27   38.33  114.52
+CDD       0.42   40.01  336.90
+CWD       0.31   62.19  336.94
+R95p      9.34  168.03  549.00
+R10mm     0.00   11.12  104.88
+SDII      0.28    3.30    8.26
+Wrote C:\Users\LENOVO\Documents\ClimX\outputs\submission_lite_forced_analogue.parquet (22 MB) in 910s

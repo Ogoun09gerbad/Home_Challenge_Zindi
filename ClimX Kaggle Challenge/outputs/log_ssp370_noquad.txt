@@ -1,0 +1,33 @@
+Loaded data in 6s; holdout=ssp370
+Forced GMST on holdout: RMSE 0.186 K, bias +0.058 K (train fit RMSE 0.187 K)
+Truth indices in 27s
+  realisation 1/24
+  realisation 2/24
+  realisation 3/24
+  realisation 4/24
+  realisation 5/24
+  realisation 6/24
+  realisation 7/24
+  realisation 8/24
+  realisation 9/24
+  realisation 10/24
+  realisation 11/24
+  realisation 12/24
+  realisation 13/24
+  realisation 14/24
+  realisation 15/24
+  realisation 16/24
+  realisation 17/24
+  realisation 18/24
+  realisation 19/24
+  realisation 20/24
+  realisation 21/24
+  realisation 22/24
+  realisation 23/24
+  realisation 24/24
+24 realisations in 429s
+
+ensemble_24: overall +0.1943
+  TXx +0.36  TNn +0.21  SU +0.46  TR +0.44  FD +0.28  ID +0.24  WSDI +0.53  CSDI -0.03  GSL +0.66  Rx5day -0.04  CDD -0.06  CWD -0.06  R95p -0.00  R10mm -0.05  SDII -0.03
+
+Saved C:\Users\LENOVO\Documents\ClimX\outputs\validation_ssp370_noquad.json (480s total)

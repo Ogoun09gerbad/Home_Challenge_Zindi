@@ -1,0 +1,33 @@
+Loaded data in 5s; holdout=ssp370
+Forced GMST on holdout: RMSE 0.186 K, bias +0.058 K (train fit RMSE 0.187 K)
+Truth indices in 27s
+  realisation 1/24
+  realisation 2/24
+  realisation 3/24
+  realisation 4/24
+  realisation 5/24
+  realisation 6/24
+  realisation 7/24
+  realisation 8/24
+  realisation 9/24
+  realisation 10/24
+  realisation 11/24
+  realisation 12/24
+  realisation 13/24
+  realisation 14/24
+  realisation 15/24
+  realisation 16/24
+  realisation 17/24
+  realisation 18/24
+  realisation 19/24
+  realisation 20/24
+  realisation 21/24
+  realisation 22/24
+  realisation 23/24
+  realisation 24/24
+24 realisations in 465s
+
+ensemble_24: overall +0.2126
+  TXx +0.39  TNn +0.23  SU +0.47  TR +0.46  FD +0.29  ID +0.25  WSDI +0.56  CSDI -0.03  GSL +0.67  Rx5day -0.02  CDD -0.03  CWD -0.04  R95p +0.02  R10mm -0.03  SDII -0.01
+
+Saved C:\Users\LENOVO\Documents\ClimX\outputs\validation_ssp370_k24.json (516s total)

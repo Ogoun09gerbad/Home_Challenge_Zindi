@@ -1,0 +1,33 @@
+Loaded data in 6s; holdout=ssp126
+Forced GMST on holdout: RMSE 0.364 K, bias +0.265 K (train fit RMSE 0.185 K)
+Truth indices in 27s
+  realisation 1/24
+  realisation 2/24
+  realisation 3/24
+  realisation 4/24
+  realisation 5/24
+  realisation 6/24
+  realisation 7/24
+  realisation 8/24
+  realisation 9/24
+  realisation 10/24
+  realisation 11/24
+  realisation 12/24
+  realisation 13/24
+  realisation 14/24
+  realisation 15/24
+  realisation 16/24
+  realisation 17/24
+  realisation 18/24
+  realisation 19/24
+  realisation 20/24
+  realisation 21/24
+  realisation 22/24
+  realisation 23/24
+  realisation 24/24
+24 realisations in 424s
+
+ensemble_24: overall -0.0481
+  TXx -0.16  TNn -0.11  SU -0.05  TR -0.10  FD -0.07  ID -0.04  WSDI -0.22  CSDI -0.06  GSL +0.55  Rx5day -0.08  CDD -0.07  CWD -0.06  R95p -0.09  R10mm -0.07  SDII -0.08
+
+Saved C:\Users\LENOVO\Documents\ClimX\outputs\validation_ssp126_noquad.json (475s total)
