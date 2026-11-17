@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/zindi-banner.png" alt="Zindi Challenge - On the leaderboard" width="100%">
+</p>
+
 # Home_Challenge_Zindi
 
 My solutions to [Zindi](https://zindi.africa) data science competitions: code, experiments and reproducible pipelines for machine learning challenges across speech, tabular data and more.
