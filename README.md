@@ -9,7 +9,7 @@ Each folder is a self-contained project with its own code, notes and (when avail
 | Folder | Domain | Approach | Result |
 |---|---|---|---|
 | [WAXAL ASR Challenge](./WAXAL%20ASR%20Challenge) | Speech recognition (Lingala, Shona) | Ensemble of w2v-BERT 2.0 CTC models, text-based language routing, Minimum-Bayes-Risk selection, rule-based post-processing | Private score 0.7711, **rank 6** |
-| [zindi_compet](./zindi_compet) | Tabular ML: financial stress prediction from mobile money transactions | Feature engineering, LightGBM + CatBoost + GAM blend | — |
+| [zindi_compet](./zindi_compet) | Tabular ML: financial stress prediction from mobile money transactions | Feature engineering, LightGBM + CatBoost + GAM blend | **Rank 14** |
 | [AssemblyAI_copy](./AssemblyAI_copy) | Real-time streaming speech-to-text | Whisper + VAD + local-agreement streaming over FastAPI WebSockets | — |
 
 ## Notes
